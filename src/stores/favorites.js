@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import tursoDb from '@/services/tursoDb'
 import localStorageService from '@/services/localStorage'
 import { useAuthStore } from './auth'
@@ -22,6 +22,7 @@ export const useFavoritesStore = defineStore('favorites', () => {
         series_id: fav.series_id,
         series_name: fav.series_name,
         series_poster: fav.series_poster,
+        item_type: fav.item_type || 'series',
         added_at: fav.added_at
       }))
       
@@ -40,35 +41,49 @@ export const useFavoritesStore = defineStore('favorites', () => {
     }
   }
 
-  const addToFavorites = async (series) => {
+  const addToFavorites = async (item) => {
     const authStore = useAuthStore()
     if (!authStore.isAuthenticated) return
 
     // Verificar si ya existe
-    if (isFavorite(series.id)) {
+    if (isFavorite(item.id)) {
+      console.log('⚠️ Item already in favorites')
       return
     }
 
     try {
+      console.log('🔥 Adding to favorites:', item)
+      
+      // Detectar si es película o serie
+      const isMovie = item.type === 'movie' || 
+                     item.releaseDate || 
+                     item.runtime
+
+      const itemType = isMovie ? 'movie' : 'series'
+      console.log('🎯 Detected type:', itemType)
+
       await tursoDb.addToFavorites(
         authStore.user.id,
-        series.id,
-        series.name,
-        series.poster || series.image
+        item.id,
+        item.name,
+        item.poster || item.image,
+        itemType
       )
       
       // Agregar al array local
       const newFavorite = {
-        series_id: series.id,
-        series_name: series.name,
-        series_poster: series.poster || series.image,
+        series_id: item.id,
+        series_name: item.name,
+        series_poster: item.poster || item.image,
+        item_type: itemType,
         added_at: new Date().toISOString()
       }
       
       favorites.value.push(newFavorite)
       localStorageService.setItem('favorites', favorites.value)
+      console.log('✅ Added to favorites successfully')
     } catch (error) {
-      console.error('Error adding to favorites:', error)
+      console.error('❌ Error adding to favorites:', error)
       throw error
     }
   }
@@ -98,6 +113,15 @@ export const useFavoritesStore = defineStore('favorites', () => {
     localStorageService.removeItem('favorites')
   }
 
+  // Getters como computed
+  const seriesInFavorites = computed(() => {
+    return favorites.value.filter(item => item.item_type === 'series' || !item.item_type)
+  })
+
+  const moviesInFavorites = computed(() => {
+    return favorites.value.filter(item => item.item_type === 'movie')
+  })
+
   return {
     favorites,
     loading,
@@ -105,6 +129,8 @@ export const useFavoritesStore = defineStore('favorites', () => {
     addToFavorites,
     removeFromFavorites,
     isFavorite,
-    clearFavorites
+    clearFavorites,
+    seriesInFavorites,
+    moviesInFavorites
   }
 })

@@ -159,21 +159,28 @@
           </div>
         </div>
 
-        <!-- Similar Movies (placeholder) -->
+        <!-- Similar Movies -->
         <div class="similar-section">
           <h3 class="section-title">You might also like</h3>
           <div class="similar-grid">
             <div 
-              v-for="n in 6" 
-              :key="n" 
+              v-for="similarMovie in similarMovies" 
+              :key="similarMovie.id" 
               class="similar-card"
+              @click="goToSimilarMovie(similarMovie.id)"
             >
               <div class="similar-poster">
-                <div class="poster-placeholder">
+                <img 
+                  v-if="similarMovie.poster"
+                  :src="similarMovie.poster"
+                  :alt="similarMovie.name"
+                  @error="handleImageError"
+                />
+                <div v-else class="poster-placeholder">
                   <Film class="placeholder-icon" />
                 </div>
               </div>
-              <p class="similar-title">Similar Movie {{ n }}</p>
+              <p class="similar-title">{{ similarMovie.name }}</p>
             </div>
           </div>
         </div>
@@ -191,6 +198,7 @@ import {
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import { useWatchlistStore } from '@/stores/watchlist'
 import { useFavoritesStore } from '@/stores/favorites'
+import { useWatchedStore } from '@/stores/watched'
 import { useMoviesStore } from '@/stores/movies'
 import { useAuthStore } from '@/stores/auth'
 import { useUIStore } from '@/stores/ui'
@@ -200,6 +208,7 @@ const route = useRoute()
 const router = useRouter()
 const watchlistStore = useWatchlistStore()
 const favoritesStore = useFavoritesStore()
+const watchedStore = useWatchedStore()
 const moviesStore = useMoviesStore()
 const authStore = useAuthStore()
 const uiStore = useUIStore()
@@ -207,6 +216,7 @@ const uiStore = useUIStore()
 const movie = ref(null)
 const loading = ref(false)
 const error = ref(null)
+const similarMovies = ref([])
 
 const movieId = computed(() => route.params.id)
 
@@ -220,42 +230,37 @@ const isFavorite = computed(() => {
 })
 
 const isWatched = computed(() => {
-  // Para películas, podrías crear un store separado o usar el mismo concepto
-  // Por ahora, simulamos que no está vista
-  return false
+  return movie.value ? watchedStore.isMovieWatched(movie.value.id) : false
 })
 
 // Methods
-const validateMovieId = () => {
-  const id = movieId.value
-  if (!id) {
-    throw new Error('ID de película no proporcionado en la URL')
-  }
-  const numericMatch = String(id).match(/(\d+)$/)
-  if (!numericMatch) {
-    throw new Error(`ID de película inválido: "${id}". No contiene un número válido.`)
-  }
-  return numericMatch[1]
-}
-
 const loadMovieDetails = async () => {
   try {
     loading.value = true
     error.value = null
 
-    const validId = validateMovieId()
+    const id = movieId.value
+    console.log('🎬 Loading movie details for ID:', id)
     
     // Primero intentar obtener de la búsqueda local
-    let movieData = moviesStore.getMovieById(validId)
+    let movieData = moviesStore.getMovieById(id)
     
     if (!movieData) {
-      // Si no está en el store, buscar en la API
+      console.log('🔍 Movie not found in store, trying API...')
+      
       try {
-        movieData = await tvdbApi.getMovieById(validId, true)
+        // Limpiar el ID para la API
+        const cleanId = String(id).replace(/[^\d]/g, '')
+        console.log('🧹 Clean ID for API:', cleanId)
+        
+        movieData = await tvdbApi.getMovieById(cleanId, true)
+        console.log('✅ Movie data from API:', movieData)
       } catch (apiError) {
-        // Si falla la API, crear datos básicos
+        console.warn('⚠️ API failed, creating fallback data:', apiError.message)
+        
+        // Si falla la API, crear datos básicos pero funcionales
         movieData = {
-          id: validId,
+          id: id,
           name: 'Movie Title',
           overview: 'Movie description not available.',
           rating: 7.5,
@@ -263,17 +268,57 @@ const loadMovieDetails = async () => {
           runtime: 120,
           genres: ['Action', 'Adventure'],
           poster: null,
-          fanart: null
+          fanart: null,
+          releaseDate: '2023-01-01',
+          status: 'Released',
+          studios: ['Studio Name'],
+          country: 'USA',
+          language: 'English'
         }
       }
     }
     
+    if (!movieData) {
+      throw new Error('No se pudieron cargar los datos de la película')
+    }
+    
     movie.value = movieData
+    console.log('✅ Movie loaded successfully:', movie.value.name)
+    
+    // Cargar películas similares
+    await loadSimilarMovies()
     
   } catch (err) {
+    console.error('❌ Error loading movie:', err)
     error.value = err.message
   } finally {
     loading.value = false
+  }
+}
+
+const loadSimilarMovies = async () => {
+  try {
+    // Obtener algunas películas trending como similares
+    if (moviesStore.trendingMovies.length > 0) {
+      // Filtrar la película actual y tomar 6 aleatorias
+      const otherMovies = moviesStore.trendingMovies.filter(m => m.id !== movie.value.id)
+      similarMovies.value = otherMovies.slice(0, 6)
+    } else {
+      // Si no hay trending movies, crear datos de placeholder
+      similarMovies.value = Array.from({ length: 6 }, (_, i) => ({
+        id: `similar_${i + 1}`,
+        name: `Similar Movie ${i + 1}`,
+        poster: null
+      }))
+    }
+  } catch (error) {
+    console.error('Error loading similar movies:', error)
+    // En caso de error, mostrar placeholders
+    similarMovies.value = Array.from({ length: 6 }, (_, i) => ({
+      id: `similar_${i + 1}`,
+      name: `Similar Movie ${i + 1}`,
+      poster: null
+    }))
   }
 }
 
@@ -325,14 +370,28 @@ const toggleFavorite = async () => {
   }
 }
 
-const toggleWatched = () => {
+const toggleWatched = async () => {
   if (!authStore.isAuthenticated) {
     router.push('/login')
     return
   }
 
-  // Implementar lógica para marcar película como vista
-  uiStore.showToast('Movie watch status feature coming soon', 'info')
+  try {
+    if (isWatched.value) {
+      await watchedStore.markAsUnwatched(`movie_${movie.value.id}`)
+      uiStore.showToast('Movie marked as unwatched', 'success')
+    } else {
+      await watchedStore.markMovieAsWatched(movie.value)
+      uiStore.showToast('Movie marked as watched', 'success')
+    }
+  } catch (error) {
+    console.error('Error toggling watched status:', error)
+    uiStore.showToast('Error updating watch status', 'error')
+  }
+}
+
+const goToSimilarMovie = (movieId) => {
+  router.push({ name: 'movie-detail', params: { id: movieId } })
 }
 
 const getStatusClass = () => {
@@ -791,6 +850,29 @@ onMounted(() => {
   border-radius: 8px;
   overflow: hidden;
   margin-bottom: 8px;
+  background: #333;
+}
+
+.similar-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.similar-poster .poster-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.similar-poster .placeholder-icon {
+  width: 30px;
+  height: 30px;
+  color: white;
+  opacity: 0.7;
 }
 
 .similar-title {
@@ -798,6 +880,7 @@ onMounted(() => {
   color: #ccc;
   text-align: center;
   margin: 0;
+  line-height: 1.3;
 }
 
 /* Responsive */

@@ -6,28 +6,49 @@ import { useAuthStore } from './auth'
 
 export const useWatchedStore = defineStore('watched', () => {
   const watchedEpisodes = ref([])
+  const watchedMovies = ref([])
   const loading = ref(false)
 
   const watchedSeries = computed(() => {
     const seriesMap = new Map()
+    const moviesMap = new Map()
+    
     watchedEpisodes.value.forEach(episode => {
-      if (!seriesMap.has(episode.series_id)) {
-        seriesMap.set(episode.series_id, {
-          series_id: episode.series_id,
-          series_name: episode.series_name,
-          episodes: [],
-          lastWatched: episode.watched_at
+      // Si es película (episodio con is_movie o episode_id que empieza con movie_)
+      if (episode.is_movie || episode.episode_id?.startsWith('movie_')) {
+        moviesMap.set(episode.series_id, {
+          id: episode.series_id,
+          name: episode.series_name,
+          type: 'movie',
+          watched_at: episode.watched_at,
+          poster: null // Se podría agregar después
         })
-      }
-      seriesMap.get(episode.series_id).episodes.push(episode)
-      
-      // Actualizar última fecha si es más reciente
-      const currentSeries = seriesMap.get(episode.series_id)
-      if (new Date(episode.watched_at) > new Date(currentSeries.lastWatched)) {
-        currentSeries.lastWatched = episode.watched_at
+      } else {
+        // Es serie normal
+        if (!seriesMap.has(episode.series_id)) {
+          seriesMap.set(episode.series_id, {
+            series_id: episode.series_id,
+            series_name: episode.series_name,
+            type: 'series',
+            episodes: [],
+            lastWatched: episode.watched_at
+          })
+        }
+        seriesMap.get(episode.series_id).episodes.push(episode)
+        
+        // Actualizar última fecha si es más reciente
+        const currentSeries = seriesMap.get(episode.series_id)
+        if (new Date(episode.watched_at) > new Date(currentSeries.lastWatched)) {
+          currentSeries.lastWatched = episode.watched_at
+        }
       }
     })
-    return Array.from(seriesMap.values())
+    
+    // Combinar series y películas
+    return [
+      ...Array.from(seriesMap.values()),
+      ...Array.from(moviesMap.values())
+    ]
   })
 
   const loadWatchedEpisodes = async () => {
@@ -105,17 +126,53 @@ export const useWatchedStore = defineStore('watched', () => {
     }
   }
 
+  // NUEVO: Marcar película como vista
+  const markMovieAsWatched = async (movie) => {
+    const authStore = useAuthStore()
+    if (!authStore.isAuthenticated) return
+
+    if (isMovieWatched(movie.id)) {
+      return
+    }
+
+    try {
+      // Usar el mismo sistema de episodes pero con datos de película
+      await tursoDb.markAsWatched(
+        authStore.user.id,
+        movie.id,
+        `movie_${movie.id}`, // ID único para película
+        movie.name,
+        'Full Movie',
+        1,
+        1
+      )
+      
+      const watchedMovie = {
+        id: Date.now(),
+        series_id: movie.id,
+        episode_id: `movie_${movie.id}`,
+        series_name: movie.name,
+        episode_name: 'Full Movie',
+        season_number: 1,
+        episode_number: 1,
+        watched_at: new Date().toISOString(),
+        is_movie: true
+      }
+      
+      watchedEpisodes.value.push(watchedMovie)
+      localStorageService.setItem('watchedEpisodes', watchedEpisodes.value)
+    } catch (error) {
+      console.error('Error marking movie as watched:', error)
+      throw error
+    }
+  }
+
   const markAsUnwatched = async (episodeId) => {
     const authStore = useAuthStore()
     if (!authStore.isAuthenticated) return
 
     try {
-      // Encontrar el episodio en la lista local
-      const watchedEpisode = watchedEpisodes.value.find(ep => ep.episode_id === episodeId)
-      if (!watchedEpisode) return
-
-      // Remover de la base de datos (necesitarías agregar este método en tursoDb)
-      // await tursoDb.removeWatchedEpisode(authStore.user.id, episodeId)
+      await tursoDb.removeWatchedEpisode(authStore.user.id, episodeId)
       
       // Remover del array local
       watchedEpisodes.value = watchedEpisodes.value.filter(ep => ep.episode_id !== episodeId)
@@ -128,6 +185,11 @@ export const useWatchedStore = defineStore('watched', () => {
 
   const isEpisodeWatched = (episodeId) => {
     return watchedEpisodes.value.some(ep => ep.episode_id == episodeId)
+  }
+
+  // NUEVO: Verificar si película está vista
+  const isMovieWatched = (movieId) => {
+    return watchedEpisodes.value.some(ep => ep.episode_id == `movie_${movieId}`)
   }
 
   const isSeriesCompletelyWatched = (seriesId, totalEpisodes = null) => {
@@ -144,17 +206,21 @@ export const useWatchedStore = defineStore('watched', () => {
 
   const clearWatchedEpisodes = () => {
     watchedEpisodes.value = []
+    watchedMovies.value = []
     localStorageService.removeItem('watchedEpisodes')
   }
 
   return {
     watchedEpisodes,
+    watchedMovies,
     watchedSeries,
     loading,
     loadWatchedEpisodes,
     markAsWatched,
+    markMovieAsWatched, // NUEVO
     markAsUnwatched,
     isEpisodeWatched,
+    isMovieWatched, // NUEVO
     isSeriesCompletelyWatched,
     getWatchedEpisodesForSeries,
     clearWatchedEpisodes

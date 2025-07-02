@@ -14,17 +14,17 @@ export const useWatchlistStore = defineStore('watchlist', {
     // Verificar si un item está en watchlist (funciona para series y películas)
     isInWatchlist: (state) => (id) => {
       return state.watchlist.some(item => 
-        item.series_id == id || item.movie_id == id
+        item.series_id == id
       )
     },
 
     // Obtener items por tipo
     seriesInWatchlist: (state) => {
-      return state.watchlist.filter(item => item.type === 'series' || !item.type)
+      return state.watchlist.filter(item => item.item_type === 'series' || !item.item_type)
     },
 
     moviesInWatchlist: (state) => {
-      return state.watchlist.filter(item => item.type === 'movie')
+      return state.watchlist.filter(item => item.item_type === 'movie')
     }
   },
 
@@ -56,48 +56,32 @@ export const useWatchlistStore = defineStore('watchlist', {
       }
 
       try {
+        console.log('🔥 Adding to watchlist:', item)
+        
         // Detectar si es película o serie
         const isMovie = item.type === 'movie' || 
                        item.releaseDate || 
                        item.runtime
 
-        console.log('📝 Adding to watchlist:', item.name, 'Type:', isMovie ? 'movie' : 'series')
+        const itemType = isMovie ? 'movie' : 'series'
+        console.log('🎯 Detected type:', itemType)
 
-        if (isMovie) {
-          // Para películas
-          await tursoDb.addMovieToWatchlist(
-            authStore.user.id,
-            item.id,
-            item.name,
-            item.poster
-          )
-          
-          // Agregar al estado local
-          this.watchlist.push({
-            movie_id: item.id,
-            movie_name: item.name,
-            movie_poster: item.poster,
-            type: 'movie',
-            added_at: new Date().toISOString()
-          })
-        } else {
-          // Para series (comportamiento original)
-          await tursoDb.addToWatchlist(
-            authStore.user.id,
-            item.id,
-            item.name,
-            item.poster
-          )
-          
-          // Agregar al estado local
-          this.watchlist.push({
-            series_id: item.id,
-            series_name: item.name,
-            series_poster: item.poster,
-            type: 'series',
-            added_at: new Date().toISOString()
-          })
-        }
+        await tursoDb.addToWatchlist(
+          authStore.user.id,
+          item.id,
+          item.name,
+          item.poster,
+          itemType
+        )
+        
+        // Agregar al estado local
+        this.watchlist.push({
+          series_id: item.id,
+          series_name: item.name,
+          series_poster: item.poster,
+          item_type: itemType,
+          added_at: new Date().toISOString()
+        })
 
         console.log('✅ Added to watchlist successfully')
       } catch (error) {
@@ -113,26 +97,11 @@ export const useWatchlistStore = defineStore('watchlist', {
       }
 
       try {
-        // Encontrar el item para saber su tipo
-        const item = this.watchlist.find(item => 
-          item.series_id == id || item.movie_id == id
-        )
-
-        if (!item) {
-          throw new Error('Item not found in watchlist')
-        }
-
-        const isMovie = item.type === 'movie' || item.movie_id
-
-        if (isMovie) {
-          await tursoDb.removeMovieFromWatchlist(authStore.user.id, id)
-        } else {
-          await tursoDb.removeFromWatchlist(authStore.user.id, id)
-        }
+        await tursoDb.removeFromWatchlist(authStore.user.id, id)
 
         // Remover del estado local
         this.watchlist = this.watchlist.filter(item => 
-          item.series_id != id && item.movie_id != id
+          item.series_id != id
         )
 
         console.log('✅ Removed from watchlist successfully')
@@ -148,4 +117,4 @@ export const useWatchlistStore = defineStore('watchlist', {
       this.error = null
     }
   }
-})  
+})

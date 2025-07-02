@@ -8,7 +8,7 @@ const client = createClient({
 })
 
 class TursoService {
-  async initDatabase() {
+ async initDatabase() {
     try {
       await client.execute(`
         CREATE TABLE IF NOT EXISTS users (
@@ -20,32 +20,70 @@ class TursoService {
         )
       `)
 
+      // MIGRACIÓN FORZADA: Recrear tablas con item_type
+      console.log('🔄 Iniciando migración de base de datos...')
+
+      // 1. Crear tabla temporal de favorites con la nueva estructura
       await client.execute(`
-        CREATE TABLE IF NOT EXISTS favorites (
+        CREATE TABLE IF NOT EXISTS favorites_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id INTEGER NOT NULL,
           series_id INTEGER NOT NULL,
           series_name TEXT NOT NULL,
           series_poster TEXT,
+          item_type TEXT DEFAULT 'series',
           added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (user_id) REFERENCES users (id),
-          UNIQUE(user_id, series_id)
+          UNIQUE(user_id, series_id, item_type)
         )
       `)
 
+      // 2. Copiar datos existentes de favorites (si existe)
+      try {
+        await client.execute(`
+          INSERT OR IGNORE INTO favorites_new (user_id, series_id, series_name, series_poster, item_type, added_at)
+          SELECT user_id, series_id, series_name, series_poster, 'series', added_at 
+          FROM favorites
+        `)
+        console.log('✅ Datos de favorites migrados')
+      } catch (e) {
+        console.log('ℹ️ Tabla favorites no existía, creando nueva')
+      }
+
+      // 3. Eliminar tabla antigua y renombrar nueva
+      await client.execute(`DROP TABLE IF EXISTS favorites`)
+      await client.execute(`ALTER TABLE favorites_new RENAME TO favorites`)
+
+      // 4. Repetir para watchlist
       await client.execute(`
-        CREATE TABLE IF NOT EXISTS watchlist (
+        CREATE TABLE IF NOT EXISTS watchlist_new (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           user_id INTEGER NOT NULL,
           series_id INTEGER NOT NULL,
           series_name TEXT NOT NULL,
           series_poster TEXT,
+          item_type TEXT DEFAULT 'series',
           added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
           FOREIGN KEY (user_id) REFERENCES users (id),
-          UNIQUE(user_id, series_id)
+          UNIQUE(user_id, series_id, item_type)
         )
       `)
 
+      try {
+        await client.execute(`
+          INSERT OR IGNORE INTO watchlist_new (user_id, series_id, series_name, series_poster, item_type, added_at)
+          SELECT user_id, series_id, series_name, series_poster, 'series', added_at 
+          FROM watchlist
+        `)
+        console.log('✅ Datos de watchlist migrados')
+      } catch (e) {
+        console.log('ℹ️ Tabla watchlist no existía, creando nueva')
+      }
+
+      await client.execute(`DROP TABLE IF EXISTS watchlist`)
+      await client.execute(`ALTER TABLE watchlist_new RENAME TO watchlist`)
+
+      // 5. Crear tabla watched (sin cambios)
       await client.execute(`
         CREATE TABLE IF NOT EXISTS watched (
           id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,9 +100,9 @@ class TursoService {
         )
       `)
 
-      console.log('Database initialized successfully')
+      console.log('✅ Database migration completed successfully')
     } catch (error) {
-      console.error('Error initializing database:', error)
+      console.error('❌ Error initializing database:', error)
       throw error
     }
   }
@@ -82,6 +120,7 @@ class TursoService {
       throw error
     }
   }
+  
   // CONSULTAR USUARIO POR EMAIL
   async getUserByEmail(email) {
     try {
@@ -108,15 +147,17 @@ class TursoService {
     }
   }
 
-  // FAVORITOS
-  async addToFavorites(userId, seriesId, seriesName, seriesPoster) {
+  // =================== FAVORITOS ===================
+  async addToFavorites(userId, seriesId, seriesName, seriesPoster, itemType = 'series') {
     try {
+      console.log('🔥 Adding to favorites DB:', { userId, seriesId, seriesName, itemType })
       await client.execute({
-        sql: 'INSERT OR REPLACE INTO favorites (user_id, series_id, series_name, series_poster) VALUES (?, ?, ?, ?)',
-        args: [userId, seriesId, seriesName, seriesPoster]
+        sql: 'INSERT OR REPLACE INTO favorites (user_id, series_id, series_name, series_poster, item_type) VALUES (?, ?, ?, ?, ?)',
+        args: [userId, seriesId, seriesName, seriesPoster, itemType]
       })
+      console.log('✅ Successfully added to favorites DB')
     } catch (error) {
-      console.error('Error adding to favorites:', error)
+      console.error('❌ Error adding to favorites:', error)
       throw error
     }
   }
@@ -146,15 +187,17 @@ class TursoService {
     }
   }
 
-  // WATCHLIST
-  async addToWatchlist(userId, seriesId, seriesName, seriesPoster) {
+  // =================== WATCHLIST ===================
+  async addToWatchlist(userId, seriesId, seriesName, seriesPoster, itemType = 'series') {
     try {
+      console.log('🔥 Adding to watchlist DB:', { userId, seriesId, seriesName, itemType })
       await client.execute({
-        sql: 'INSERT OR REPLACE INTO watchlist (user_id, series_id, series_name, series_poster) VALUES (?, ?, ?, ?)',
-        args: [userId, seriesId, seriesName, seriesPoster]
+        sql: 'INSERT OR REPLACE INTO watchlist (user_id, series_id, series_name, series_poster, item_type) VALUES (?, ?, ?, ?, ?)',
+        args: [userId, seriesId, seriesName, seriesPoster, itemType]
       })
+      console.log('✅ Successfully added to watchlist DB')
     } catch (error) {
-      console.error('Error adding to watchlist:', error)
+      console.error('❌ Error adding to watchlist:', error)
       throw error
     }
   }
@@ -172,7 +215,19 @@ class TursoService {
     }
   }
 
-  // EPISODIOS VISTOS
+  async removeFromWatchlist(userId, seriesId) {
+    try {
+      await client.execute({
+        sql: 'DELETE FROM watchlist WHERE user_id = ? AND series_id = ?',
+        args: [userId, seriesId]
+      })
+    } catch (error) {
+      console.error('Error removing from watchlist:', error)
+      throw error
+    }
+  }
+
+  // =================== EPISODIOS VISTOS ===================
   async markAsWatched(userId, seriesId, episodeId, seriesName, episodeName, seasonNumber, episodeNumber) {
     try {
       await client.execute({
@@ -197,77 +252,62 @@ class TursoService {
       throw error
     }
   }
-  // Agregar estos métodos a tu archivo tursoDb.js existente
 
-// MÉTODO FALTANTE: Remover de watchlist
-async removeFromWatchlist(userId, seriesId) {
-  try {
-    await client.execute({
-      sql: 'DELETE FROM watchlist WHERE user_id = ? AND series_id = ?',
-      args: [userId, seriesId]
-    })
-  } catch (error) {
-    console.error('Error removing from watchlist:', error)
-    throw error
-  }
-}
-
-// MÉTODO FALTANTE: Remover episodio visto (opcional)
-async removeWatchedEpisode(userId, episodeId) {
-  try {
-    await client.execute({
-      sql: 'DELETE FROM watched WHERE user_id = ? AND episode_id = ?',
-      args: [userId, episodeId]
-    })
-  } catch (error) {
-    console.error('Error removing watched episode:', error)
-    throw error
-  }
-}
-
-// MÉTODO MEJORADO: Verificar si episodio ya está visto
-async isEpisodeWatched(userId, episodeId) {
-  try {
-    const result = await client.execute({
-      sql: 'SELECT COUNT(*) as count FROM watched WHERE user_id = ? AND episode_id = ?',
-      args: [userId, episodeId]
-    })
-    return result.rows[0].count > 0
-  } catch (error) {
-    console.error('Error checking if episode is watched:', error)
-    return false
-  }
-}
-
-// MÉTODO ÚTIL: Obtener estadísticas del usuario
-async getUserStats(userId) {
-  try {
-    const [favoritesResult, watchlistResult, watchedResult] = await Promise.all([
-      client.execute({
-        sql: 'SELECT COUNT(*) as count FROM favorites WHERE user_id = ?',
-        args: [userId]
-      }),
-      client.execute({
-        sql: 'SELECT COUNT(*) as count FROM watchlist WHERE user_id = ?',
-        args: [userId]
-      }),
-      client.execute({
-        sql: 'SELECT COUNT(*) as episodes, COUNT(DISTINCT series_id) as series FROM watched WHERE user_id = ?',
-        args: [userId]
+  async removeWatchedEpisode(userId, episodeId) {
+    try {
+      await client.execute({
+        sql: 'DELETE FROM watched WHERE user_id = ? AND episode_id = ?',
+        args: [userId, episodeId]
       })
-    ])
-
-    return {
-      totalFavorites: favoritesResult.rows[0].count,
-      totalWatchlist: watchlistResult.rows[0].count,
-      totalWatchedEpisodes: watchedResult.rows[0].episodes,
-      totalWatchedSeries: watchedResult.rows[0].series
+    } catch (error) {
+      console.error('Error removing watched episode:', error)
+      throw error
     }
-  } catch (error) {
-    console.error('Error getting user stats:', error)
-    throw error
   }
-}
+
+  async isEpisodeWatched(userId, episodeId) {
+    try {
+      const result = await client.execute({
+        sql: 'SELECT COUNT(*) as count FROM watched WHERE user_id = ? AND episode_id = ?',
+        args: [userId, episodeId]
+      })
+      return result.rows[0].count > 0
+    } catch (error) {
+      console.error('Error checking if episode is watched:', error)
+      return false
+    }
+  }
+
+  // =================== ESTADÍSTICAS ===================
+  async getUserStats(userId) {
+    try {
+      const [favoritesResult, watchlistResult, watchedResult] = await Promise.all([
+        client.execute({
+          sql: 'SELECT COUNT(*) as count FROM favorites WHERE user_id = ?',
+          args: [userId]
+        }),
+        client.execute({
+          sql: 'SELECT COUNT(*) as count FROM watchlist WHERE user_id = ?',
+          args: [userId]
+        }),
+        client.execute({
+          sql: 'SELECT COUNT(*) as episodes, COUNT(DISTINCT series_id) as series FROM watched WHERE user_id = ?',
+          args: [userId]
+        })
+      ])
+
+      return {
+        totalFavorites: favoritesResult.rows[0].count,
+        totalWatchlist: watchlistResult.rows[0].count,
+        totalWatchedEpisodes: watchedResult.rows[0].episodes,
+        totalWatchedSeries: watchedResult.rows[0].series
+      }
+    } catch (error) {
+      console.error('Error getting user stats:', error)
+      throw error
+    }
+  }
+  
 }
 
 export default new TursoService()

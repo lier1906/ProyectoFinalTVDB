@@ -19,6 +19,11 @@
           Ver Detalles
         </button>
       </div>
+      
+      <!-- Type badge -->
+      <div class="absolute top-2 right-2 type-badge">
+        {{ isMovie ? 'Movie' : 'TV' }}
+      </div>
     </div>
 
     <div class="p-4">
@@ -75,6 +80,14 @@ const favoritesStore = useFavoritesStore()
 const authStore = useAuthStore()
 const uiStore = useUIStore()
 
+// Computed para detectar si es película
+const isMovie = computed(() => {
+  return props.series.type === 'movie' || 
+         props.series.releaseDate || 
+         props.series.runtime ||
+         (props.series.year && !props.series.firstAired)
+})
+
 // Computed para verificar estados
 const isInWatchlist = computed(() => {
   return watchlistStore.isInWatchlist(props.series.id)
@@ -85,10 +98,7 @@ const isFavorite = computed(() => {
 })
 
 function goToDetail() {
-  // Detectar si es película o serie basado en las propiedades
-  const isMovie = props.series.type === 'movie' || props.series.releaseDate
-  
-  if (isMovie) {
+  if (isMovie.value) {
     router.push({ name: 'movie-detail', params: { id: props.series.id } })
   } else {
     router.push({ name: 'series-detail', params: { id: props.series.id } })
@@ -104,14 +114,19 @@ async function toggleWatchlist() {
   try {
     if (isInWatchlist.value) {
       await watchlistStore.removeFromWatchlist(props.series.id)
-      uiStore.showToast('Serie removida de la watchlist', 'success')
+      uiStore.showToast(`${isMovie.value ? 'Movie' : 'Series'} removed from watchlist`, 'success')
     } else {
-      await watchlistStore.addToWatchlist(props.series)
-      uiStore.showToast('Serie agregada a la watchlist', 'success')
+      // Asegurar que el objeto tenga el tipo correcto
+      const itemToAdd = {
+        ...props.series,
+        type: isMovie.value ? 'movie' : 'series'
+      }
+      await watchlistStore.addToWatchlist(itemToAdd)
+      uiStore.showToast(`${isMovie.value ? 'Movie' : 'Series'} added to watchlist`, 'success')
     }
   } catch (error) {
     console.error('Error toggling watchlist:', error)
-    uiStore.showToast('Error al actualizar watchlist', 'error')
+    uiStore.showToast('Error updating watchlist', 'error')
   }
 }
 
@@ -124,14 +139,37 @@ async function toggleFavorite() {
   try {
     if (isFavorite.value) {
       await favoritesStore.removeFromFavorites(props.series.id)
-      uiStore.showToast('Serie removida de favoritos', 'success')
+      uiStore.showToast(`${isMovie.value ? 'Movie' : 'Series'} removed from favorites`, 'success')
     } else {
-      await favoritesStore.addToFavorites(props.series)
-      uiStore.showToast('Serie agregada a favoritos', 'success')
+      // Asegurar que el objeto tenga el tipo correcto
+      const itemToAdd = {
+        ...props.series,
+        type: isMovie.value ? 'movie' : 'series'
+      }
+      await favoritesStore.addToFavorites(itemToAdd)
+      uiStore.showToast(`${isMovie.value ? 'Movie' : 'Series'} added to favorites`, 'success')
     }
   } catch (error) {
     console.error('Error toggling favorites:', error)
-    uiStore.showToast('Error al actualizar favoritos', 'error')
+    uiStore.showToast('Error updating favorites', 'error')
   }
 }
 </script>
+
+<style scoped>
+.type-badge {
+  background: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.card {
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+</style>
