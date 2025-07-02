@@ -39,6 +39,19 @@ const router = createRouter({
       props: true
     },
     {
+      path: '/movie/:id',
+      name: 'movie-detail',
+      component: () => import('@/views/MovieDetailView.vue'),
+      props: true
+    },
+    // Ruta genérica que detecta automáticamente si es serie o película
+    {
+      path: '/detail/:id',
+      name: 'auto-detail',
+      component: () => import('@/views/AutoDetailView.vue'),
+      props: true
+    },
+    {
       path: '/login',
       name: 'login',
       component: () => import('@/views/LoginView.vue')

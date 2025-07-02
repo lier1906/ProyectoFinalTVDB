@@ -1,573 +1,360 @@
-<script>
-import { ref, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import tvdbApi from '@/services/tvdbApi'
-import { useAuthStore } from '@/stores/auth' // Asumiendo que tienes un store de autenticación
-
-export default {
-  name: 'WatchedView',
-  setup() {
-    const router = useRouter()
-    const authStore = useAuthStore()
-
-    const watchedItems = ref([])
-    const watchedDetails = ref([])
-    const loading = ref(false)
-    const error = ref(null)
-    const searchQuery = ref('')
-    const sortBy = ref('id') // id (más reciente), series_name, season_number
-    const filterBy = ref('all') // all, series, episodes
-    const groupBy = ref('series') // series, episodes
-
-    // --- Cargar contenido visto desde la API/base de datos ---
-    const loadWatchedFromDB = async () => {
-      try {
-        loading.value = true
-        error.value = null
-
-        // Aquí harías la llamada a tu API para obtener los datos de la tabla 'watched'
-        // Por ejemplo:
-        // const response = await api.get(`/users/${authStore.user.id}/watched`)
-        // watchedItems.value = response.data
-
-        // Simulación de datos según tu estructura de DB:
-        const mockWatchedData = [
-          {
-            id: 1,
-            user_id: authStore.user?.id || 1,
-            series_id: 12345,
-            episode_id: 67890,
-            series_name: "Breaking Bad",
-            episode_name: "Pilot",
-            season_number: 1
-          },
-          {
-            id: 2,
-            user_id: authStore.user?.id || 1,
-            series_id: 12345,
-            episode_id: 67891,
-            series_name: "Breaking Bad",
-            episode_name: "Cat's in the Bag...",
-            season_number: 1
-          }
-        ]
-        
-        watchedItems.value = mockWatchedData
-        await loadWatchedDetails()
-
-      } catch (err) {
-        error.value = err.message
-      } finally {
-        loading.value = false
-      }
-    }
-
-    // --- Agregar episodio a visto ---
-    const addEpisodeToWatched = async (seriesId, episodeId, seriesName, episodeName, seasonNumber) => {
-      try {
-        const watchedData = {
-          user_id: authStore.user.id,
-          series_id: seriesId,
-          episode_id: episodeId,
-          series_name: seriesName,
-          episode_name: episodeName,
-          season_number: seasonNumber
-        }
-
-        // Llamada a la API para insertar en la base de datos
-        // const response = await api.post('/watched', watchedData)
-        
-        // Simulación: agregar localmente
-        const newItem = {
-          id: Date.now(), // En la DB sería autoincrement
-          ...watchedData
-        }
-        
-        watchedItems.value.unshift(newItem)
-        await loadWatchedDetails()
-
-      } catch (err) {
-        console.error('Error agregando episodio a visto:', err)
-      }
-    }
-
-    // --- Quitar episodio de visto ---
-    const removeEpisodeFromWatched = async (watchedId) => {
-      try {
-        // await api.delete(`/watched/${watchedId}`)
-        watchedItems.value = watchedItems.value.filter(item => item.id !== watchedId)
-        await loadWatchedDetails()
-      } catch (err) {
-        console.error('Error quitando episodio de visto:', err)
-      }
-    }
-
-    // --- Marcar serie completa como vista ---
-    const markSeriesAsWatched = async (seriesId) => {
-      try {
-        // Obtener todos los episodios de la serie
-        const seriesData = await tvdbApi.getSeriesById(seriesId, true)
-        const episodes = await tvdbApi.getSeriesEpisodes(seriesId)
-        
-        for (const episode of episodes.episodes) {
-          if (!isEpisodeWatched(episode.id)) {
-            await addEpisodeToWatched(
-              seriesId,
-              episode.id,
-              seriesData.name,
-              episode.name,
-              episode.seasonNumber || 1
-            )
-          }
-        }
-      } catch (err) {
-        console.error('Error marcando serie como vista:', err)
-      }
-    }
-
-    // --- Verificar si un episodio está visto ---
-    const isEpisodeWatched = (episodeId) => {
-      return watchedItems.value.some(item => item.episode_id === episodeId)
-    }
-
-    // --- Verificar si una serie está completamente vista ---
-    const isSeriesWatched = (seriesId) => {
-      const seriesEpisodes = watchedItems.value.filter(item => item.series_id === seriesId)
-      return seriesEpisodes.length > 0
-    }
-
-    // --- Cargar detalles adicionales ---
-    const loadWatchedDetails = async () => {
-      if (watchedItems.value.length === 0) {
-        watchedDetails.value = []
-        return
-      }
-
-      try {
-        const uniqueSeries = [...new Set(watchedItems.value.map(item => item.series_id))]
-        const seriesDetails = []
-
-        for (const seriesId of uniqueSeries) {
-          try {
-            const seriesData = await tvdbApi.getSeriesById(seriesId)
-            const seriesWatchedItems = watchedItems.value.filter(item => item.series_id === seriesId)
-            
-            seriesDetails.push({
-              ...seriesData,
-              watchedEpisodes: seriesWatchedItems,
-              totalWatchedEpisodes: seriesWatchedItems.length,
-              lastWatchedId: Math.max(...seriesWatchedItems.map(item => item.id))
-            })
-          } catch (err) {
-            console.warn(`Error cargando detalles para serie ${seriesId}:`, err)
-          }
-        }
-
-        watchedDetails.value = seriesDetails
-      } catch (err) {
-        console.error('Error cargando detalles:', err)
-      }
-    }
-
-    // --- Estadísticas ---
-    const watchedStats = computed(() => {
-      const totalEpisodes = watchedItems.value.length
-      const uniqueSeries = new Set(watchedItems.value.map(item => item.series_id)).size
-      const lastWatched = watchedItems.value.length > 0 
-        ? watchedItems.value.reduce((latest, item) => 
-            item.id > latest.id ? item : latest
-          )
-        : null
-
-      return {
-        totalEpisodes,
-        uniqueSeries,
-        lastWatched
-      }
-    })
-
-    // --- Computed para filtrar y agrupar ---
-    const filteredAndGroupedItems = computed(() => {
-      let items = groupBy.value === 'series' ? watchedDetails.value : watchedItems.value
-
-      // Filtrar por búsqueda
-      if (searchQuery.value.trim()) {
-        const query = searchQuery.value.toLowerCase()
-        if (groupBy.value === 'series') {
-          items = items.filter(item => 
-            item.name?.toLowerCase().includes(query)
-          )
-        } else {
-          items = items.filter(item => 
-            item.series_name?.toLowerCase().includes(query) ||
-            item.episode_name?.toLowerCase().includes(query)
-          )
-        }
-      }
-
-      // Ordenar
-      items.sort((a, b) => {
-        switch (sortBy.value) {
-          case 'series_name':
-            const nameA = groupBy.value === 'series' ? a.name : a.series_name
-            const nameB = groupBy.value === 'series' ? b.name : b.series_name
-            return (nameA || '').localeCompare(nameB || '')
-          case 'season_number':
-            if (groupBy.value === 'episodes') {
-              return (a.season_number || 0) - (b.season_number || 0)
-            }
-            return 0
-          case 'id':
-          default:
-            const idA = groupBy.value === 'series' ? a.lastWatchedId : a.id
-            const idB = groupBy.value === 'series' ? b.lastWatchedId : b.id
-            return (idB || 0) - (idA || 0)
-        }
-      })
-
-      return items
-    })
-
-    // --- Navegación ---
-    const goToSeriesDetail = (seriesId) => {
-      router.push(`/series/${seriesId}`)
-    }
-
-    const goBack = () => {
-      router.go(-1)
-    }
-
-    // --- Limpiar todo el historial ---
-    const clearAllWatched = async () => {
-      if (confirm('¿Estás seguro de que quieres eliminar todo tu historial de visualización?')) {
-        try {
-          // await api.delete(`/users/${authStore.user.id}/watched`)
-          watchedItems.value = []
-          watchedDetails.value = []
-        } catch (err) {
-          console.error('Error limpiando historial:', err)
-        }
-      }
-    }
-
-    // --- Lifecycle ---
-    onMounted(() => {
-      loadWatchedFromDB()
-    })
-
-    return {
-      watchedItems,
-      watchedDetails,
-      loading,
-      error,
-      searchQuery,
-      sortBy,
-      filterBy,
-      groupBy,
-      filteredAndGroupedItems,
-      watchedStats,
-      addEpisodeToWatched,
-      removeEpisodeFromWatched,
-      markSeriesAsWatched,
-      isEpisodeWatched,
-      isSeriesWatched,
-      goToSeriesDetail,
-      goBack,
-      clearAllWatched,
-      loadWatchedFromDB
-    }
-  }
-}
-</script>
-
 <template>
   <div class="watched-view">
-    <div class="header">
-      <button class="back-btn" @click="goBack">← Volver</button>
-      <h1>Historial de Visualización</h1>
+    <!-- Header -->
+    <div class="watched-header">
+      <button @click="goBack" class="back-button">
+        <ArrowLeft class="back-icon" />
+      </button>
+      <h1 class="page-title">Watched</h1>
+      <button class="menu-button" @click="clearAllWatched">
+        <Trash2 class="menu-icon" />
+      </button>
     </div>
 
-    <!-- Estadísticas -->
-    <div class="stats-card">
-      <div class="stat-item">
-        <span class="stat-number">{{ watchedStats.totalEpisodes }}</span>
-        <span class="stat-label">Episodios vistos</span>
-      </div>
-      <div class="stat-item">
-        <span class="stat-number">{{ watchedStats.uniqueSeries }}</span>
-        <span class="stat-label">Series diferentes</span>
-      </div>
-      <div class="stat-item" v-if="watchedStats.lastWatched">
-        <span class="stat-number">{{ watchedStats.lastWatched.series_name }}</span>
-        <span class="stat-label">Última vista</span>
+    <!-- Tab Filters -->
+    <div class="filter-tabs">
+      <button 
+        class="tab-button"
+        :class="{ active: activeTab === 'series' }"
+        @click="activeTab = 'series'"
+      >
+        <Tv class="tab-icon" />
+        Series
+      </button>
+      <button 
+        class="tab-button"
+        :class="{ active: activeTab === 'episodes' }"
+        @click="activeTab = 'episodes'"
+      >
+        <PlayCircle class="tab-icon" />
+        Episodes
+      </button>
+    </div>
+
+    <div v-if="loading" class="loading-container">
+      <LoadingSpinner size="lg" />
+      <p>Loading watched content...</p>
+    </div>
+
+    <div v-else-if="!authStore.isAuthenticated" class="auth-required">
+      <div class="auth-card">
+        <div class="auth-icon">🔒</div>
+        <h2>Sign in to view history</h2>
+        <p>Track your watched episodes and series</p>
+        <router-link to="/login" class="btn btn-primary">Sign In</router-link>
       </div>
     </div>
 
-    <div class="controls">
-      <div class="search-bar">
-        <input
-          v-model="searchQuery"
-          type="text"
-          :placeholder="groupBy === 'series' ? 'Buscar series...' : 'Buscar episodios...'"
-          class="search-input"
-        />
-      </div>
-
-      <div class="filters">
-        <select v-model="groupBy" class="filter-select">
-          <option value="series">Agrupar por Series</option>
-          <option value="episodes">Ver Episodios</option>
-        </select>
-
-        <select v-model="sortBy" class="filter-select">
-          <option value="id">Más reciente</option>
-          <option value="series_name">Nombre</option>
-          <option v-if="groupBy === 'episodes'" value="season_number">Temporada</option>
-        </select>
-
-        <button
-          v-if="watchedItems.length > 0"
-          @click="clearAllWatched"
-          class="clear-btn"
-        >
-          Limpiar Historial
+    <div v-else-if="isEmpty" class="empty-container">
+      <div class="empty-card">
+        <div class="empty-icon">📺</div>
+        <h2>No watched content yet</h2>
+        <p>Start watching episodes and they'll appear here.</p>
+        <button class="explore-btn" @click="$router.push('/')">
+          Explore Shows
         </button>
       </div>
     </div>
 
-    <div v-if="loading" class="loading-container">
-      <div class="loading-spinner"></div>
-      <p>Cargando historial...</p>
-    </div>
-
-    <div v-else-if="error" class="error-container">
-      <div class="error-card">
-        <h2>Error</h2>
-        <p class="error-message">{{ error }}</p>
-        <button class="retry-btn" @click="loadWatchedFromDB">Reintentar</button>
-      </div>
-    </div>
-
-    <div v-else-if="filteredAndGroupedItems.length === 0" class="empty-state">
-      <div class="empty-card">
-        <div class="empty-icon">📺</div>
-        <h2>No hay historial de visualización</h2>
-        <p v-if="searchQuery">No se encontraron resultados para "{{ searchQuery }}"</p>
-        <p v-else>Aún no has marcado ningún episodio como visto.</p>
-        <p>¡Comienza viendo series y marcando episodios!</p>
-      </div>
-    </div>
-
-    <!-- Vista agrupada por series -->
-    <div v-else-if="groupBy === 'series'" class="series-grid">
-      <div
-        v-for="series in filteredAndGroupedItems"
-        :key="series.id"
-        class="series-card"
-        @click="goToSeriesDetail(series.id)"
-      >
-        <div class="card-image">
-          <img
-            v-if="series.poster"
-            :src="series.poster"
-            :alt="series.name"
-            @error="$event.target.style.display = 'none'"
-          />
-          <div v-else class="image-placeholder">📺</div>
-          <div class="episodes-badge">
-            {{ series.totalWatchedEpisodes }} episodios
+    <div v-else class="watched-content">
+      <!-- Stats -->
+      <div class="stats-section">
+        <div class="stats-grid">
+          <div class="stat-item">
+            <span class="stat-number">{{ watchedStats.totalEpisodes }}</span>
+            <span class="stat-label">Episodes</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number">{{ watchedStats.uniqueSeries }}</span>
+            <span class="stat-label">Series</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-number">{{ watchedStats.hoursWatched }}</span>
+            <span class="stat-label">Hours</span>
           </div>
         </div>
+      </div>
 
-        <div class="card-content">
-          <h3 class="card-title">{{ series.name }}</h3>
-          
-          <div class="card-meta">
-            <span v-if="series.rating" class="rating">⭐ {{ series.rating.toFixed(1) }}</span>
-            <span class="episode-count">{{ series.totalWatchedEpisodes }} episodios vistos</span>
-          </div>
-
-          <div class="recent-episodes">
-            <h4>Episodios recientes:</h4>
-            <div 
-              v-for="episode in series.watchedEpisodes.slice(0, 3)" 
-              :key="episode.id"
-              class="episode-item"
-            >
-              <span class="season">T{{ episode.season_number }}</span>
-              <span class="episode-name">{{ episode.episode_name }}</span>
-              <button
-                @click.stop="removeEpisodeFromWatched(episode.id)"
-                class="remove-episode-btn"
-                title="Marcar como no visto"
-              >
-                ✕
-              </button>
+      <!-- Series Tab Content -->
+      <div v-if="activeTab === 'series'" class="series-section">
+        <div class="watched-grid">
+          <div 
+            v-for="series in watchedStore.watchedSeries" 
+            :key="series.series_id" 
+            class="watched-card"
+            @click="goToSeriesDetail(series.series_id)"
+          >
+            <div class="card-poster">
+              <div class="poster-placeholder">
+                <Tv class="placeholder-icon" />
+              </div>
+              
+              <!-- Episodes count badge -->
+              <div class="episodes-badge">
+                {{ series.episodes.length }} ep
+              </div>
+              
+              <!-- Progress indicator -->
+              <div class="progress-indicator">
+                <Check class="check-icon" />
+              </div>
+            </div>
+            
+            <div class="card-info">
+              <h3 class="card-title">{{ series.series_name }}</h3>
+              <p class="card-episodes">{{ series.episodes.length }} watched</p>
+              <p class="card-date">Last: {{ formatDate(series.lastWatched) }}</p>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Vista de episodios individuales -->
-    <div v-else class="episodes-list">
-      <div
-        v-for="episode in filteredAndGroupedItems"
-        :key="episode.id"
-        class="episode-card"
-      >
-        <div class="episode-info">
-          <div class="series-info">
-            <h3 class="series-name">{{ episode.series_name }}</h3>
-            <span class="season-number">Temporada {{ episode.season_number }}</span>
-          </div>
-          
-          <div class="episode-details">
-            <h4 class="episode-name">{{ episode.episode_name }}</h4>
-            <div class="episode-meta">
-              <span class="watched-id">Visto #{{ episode.id }}</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="episode-actions">
-          <button
+      <!-- Episodes Tab Content -->
+      <div v-else class="episodes-section">
+        <div class="episodes-list">
+          <div 
+            v-for="episode in displayedEpisodes" 
+            :key="episode.id"
+            class="episode-item"
             @click="goToSeriesDetail(episode.series_id)"
-            class="view-series-btn"
           >
-            Ver Serie
-          </button>
-          <button
-            @click="removeEpisodeFromWatched(episode.id)"
-            class="remove-btn"
-            title="Marcar como no visto"
-          >
-            ✕ Quitar
-          </button>
+            <div class="episode-number">
+              {{ episode.episode_number || 'E?' }}
+            </div>
+            
+            <div class="episode-info">
+              <h4 class="episode-series">{{ episode.series_name }}</h4>
+              <p class="episode-title">{{ episode.episode_name }}</p>
+              <div class="episode-meta">
+                <span class="season">S{{ episode.season_number || '?' }}</span>
+                <span class="watched-date">{{ formatDate(episode.watched_at) }}</span>
+              </div>
+            </div>
+
+            <button 
+              class="unwatch-btn"
+              @click.stop="markAsUnwatched(episode.episode_id)"
+              title="Mark as unwatched"
+            >
+              <X class="unwatch-icon" />
+            </button>
+          </div>
+          
+          <!-- Load more button -->
+          <div v-if="watchedStore.watchedEpisodes.length > 50" class="load-more-container">
+            <button class="load-more-btn" @click="showAllEpisodes = !showAllEpisodes">
+              {{ showAllEpisodes ? 'Show less' : `Show all ${watchedStore.watchedEpisodes.length} episodes` }}
+            </button>
+          </div>
         </div>
       </div>
     </div>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+      <router-link to="/" class="nav-item" :class="{ active: $route.name === 'home' }">
+        <Compass class="nav-icon" />
+        <span class="nav-label">Explore</span>
+      </router-link>
+      
+      <router-link to="/watchlist" class="nav-item" :class="{ active: $route.name === 'watchlist' }">
+        <Clock class="nav-icon" />
+        <span class="nav-label">Watchlist</span>
+      </router-link>
+      
+      <router-link to="/watched" class="nav-item" :class="{ active: $route.name === 'watched' }">
+        <Check class="nav-icon" />
+        <span class="nav-label">Watched</span>
+      </router-link>
+      
+      <router-link to="/favorites" class="nav-item" :class="{ active: $route.name === 'favorites' }">
+        <Heart class="nav-icon" />
+        <span class="nav-label">Favorites</span>
+      </router-link>
+    </nav>
   </div>
 </template>
+
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { 
+  ArrowLeft, Trash2, Tv, PlayCircle, Check, X, 
+  Compass, Clock, Heart
+} from 'lucide-vue-next'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
+import { useWatchedStore } from '@/stores/watched'
+import { useAuthStore } from '@/stores/auth'
+import { useUIStore } from '@/stores/ui'
+
+const router = useRouter()
+const watchedStore = useWatchedStore()
+const authStore = useAuthStore()
+const uiStore = useUIStore()
+
+const activeTab = ref('series')
+const showAllEpisodes = ref(false)
+const loading = computed(() => watchedStore.loading)
+
+const isEmpty = computed(() => 
+  authStore.isAuthenticated && watchedStore.watchedEpisodes.length === 0
+)
+
+const displayedEpisodes = computed(() => {
+  const episodes = watchedStore.watchedEpisodes
+  if (showAllEpisodes.value || episodes.length <= 50) {
+    return episodes
+  }
+  return episodes.slice(0, 50)
+})
+
+const watchedStats = computed(() => {
+  const totalEpisodes = watchedStore.watchedEpisodes.length
+  const uniqueSeries = new Set(watchedStore.watchedEpisodes.map(ep => ep.series_id)).size
+  // Estimamos 45 minutos por episodio
+  const hoursWatched = Math.round((totalEpisodes * 45) / 60)
+  
+  return {
+    totalEpisodes,
+    uniqueSeries,
+    hoursWatched
+  }
+})
+
+const markAsUnwatched = async (episodeId) => {
+  try {
+    await watchedStore.markAsUnwatched(episodeId)
+    uiStore.showToast('Episode marked as unwatched', 'success')
+  } catch (error) {
+    uiStore.showToast('Error updating episode status', 'error')
+  }
+}
+
+const clearAllWatched = async () => {
+  if (!confirm('Are you sure you want to clear your entire watch history? This action cannot be undone.')) {
+    return
+  }
+  
+  try {
+    await watchedStore.clearWatchedEpisodes()
+    uiStore.showToast('Watch history cleared', 'success')
+  } catch (error) {
+    uiStore.showToast('Error clearing watch history', 'error')
+  }
+}
+
+const goToSeriesDetail = (itemId, itemType = 'series') => {
+  if (itemType === 'movie') {
+    router.push({ name: 'movie-detail', params: { id: itemId } })
+  } else {
+    router.push({ name: 'series-detail', params: { id: itemId } })
+  }
+}
+const goBack = () => {
+  router.go(-1)
+}
+
+const formatDate = (dateString) => {
+  if (!dateString) return 'Unknown date'
+  try {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffTime = Math.abs(now - date)
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    
+    if (diffDays === 1) return 'yesterday'
+    if (diffDays < 7) return `${diffDays} days ago`
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
+    return `${Math.floor(diffDays / 30)} months ago`
+  } catch {
+    return dateString
+  }
+}
+
+onMounted(() => {
+  if (authStore.isAuthenticated) {
+    watchedStore.loadWatchedEpisodes()
+  }
+})
+</script>
 
 <style scoped>
 .watched-view {
   min-height: 100vh;
-  padding: 20px;
-  background: #f8f9fa;
+  background: #1a1a1a;
+  color: white;
+  padding-bottom: 80px;
 }
 
-.header {
+.watched-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+}
+
+.back-button, .menu-button {
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 20px;
-  margin-bottom: 30px;
+  justify-content: center;
+  cursor: pointer;
+  color: white;
 }
 
-.header h1 {
-  font-size: 2.5rem;
-  color: #2c3e50;
+.menu-button {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.back-icon, .menu-icon {
+  width: 20px;
+  height: 20px;
+}
+
+.page-title {
+  font-size: 18px;
+  font-weight: 600;
   margin: 0;
-}
-
-.back-btn {
-  padding: 10px 20px;
-  background: #6c757d;
   color: white;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.3s ease;
 }
 
-.back-btn:hover {
-  background: #5a6268;
-}
-
-.stats-card {
-  background: white;
-  padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  margin-bottom: 30px;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 20px;
-}
-
-.stat-item {
-  text-align: center;
-}
-
-.stat-number {
-  display: block;
-  font-size: 2rem;
-  font-weight: bold;
-  color: #007bff;
-  margin-bottom: 5px;
-}
-
-.stat-label {
-  color: #6c757d;
-  font-size: 14px;
-}
-
-.controls {
-  background: white;
-  padding: 20px;
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  margin-bottom: 30px;
-}
-
-.search-bar {
-  margin-bottom: 15px;
-}
-
-.search-input {
-  width: 100%;
-  padding: 12px 16px;
-  border: 2px solid #e9ecef;
-  border-radius: 8px;
-  font-size: 16px;
-  transition: border-color 0.3s ease;
-}
-
-.search-input:focus {
-  outline: none;
-  border-color: #007bff;
-}
-
-.filters {
+.filter-tabs {
   display: flex;
-  gap: 15px;
+  padding: 0 20px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid #333;
+}
+
+.tab-button {
+  flex: 1;
+  display: flex;
   align-items: center;
-  flex-wrap: wrap;
-}
-
-.filter-select {
-  padding: 8px 12px;
-  border: 2px solid #e9ecef;
-  border-radius: 6px;
-  font-size: 14px;
-  background: white;
-  cursor: pointer;
-}
-
-.clear-btn {
-  padding: 8px 16px;
-  background: #dc3545;
-  color: white;
+  justify-content: center;
+  gap: 8px;
+  padding: 15px;
+  background: none;
   border: none;
-  border-radius: 6px;
+  color: #666;
+  font-size: 16px;
   cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.3s ease;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s ease;
 }
 
-.clear-btn:hover {
-  background: #c82333;
+.tab-button.active {
+  color: #667eea;
+  border-bottom-color: #667eea;
+}
+
+.tab-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .loading-container {
@@ -575,303 +362,460 @@ export default {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 400px;
+  min-height: 60vh;
+  color: #666;
 }
 
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #007bff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-.error-container, .empty-state {
+.auth-required {
   display: flex;
   justify-content: center;
-  padding: 40px 20px;
+  align-items: center;
+  min-height: 60vh;
+  padding: 20px;
 }
 
-.error-card, .empty-card {
-  background: white;
-  border-radius: 8px;
-  padding: 30px;
-  max-width: 600px;
-  width: 100%;
+.auth-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 40px 30px;
   text-align: center;
+  max-width: 300px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.error-card {
-  border: 1px solid #dc3545;
-}
-
-.error-message {
-  color: #dc3545;
-  margin: 15px 0;
-  font-size: 16px;
-}
-
-.retry-btn {
-  background: #007bff;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-
-.empty-icon {
-  font-size: 4rem;
+.auth-icon {
+  font-size: 48px;
   margin-bottom: 20px;
 }
 
+.auth-card h2 {
+  color: white;
+  margin-bottom: 10px;
+  font-size: 20px;
+}
+
+.auth-card p {
+  color: #999;
+  margin-bottom: 25px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-block;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: #667eea;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #5a67d8;
+  transform: translateY(-1px);
+}
+
+.empty-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 60vh;
+  padding: 20px;
+}
+
+.empty-card {
+  text-align: center;
+  max-width: 300px;
+}
+
+.empty-icon {
+  font-size: 64px;
+  margin-bottom: 20px;
+  opacity: 0.6;
+}
+
 .empty-card h2 {
-  color: #6c757d;
-  margin-bottom: 15px;
+  color: white;
+  margin-bottom: 10px;
+  font-size: 20px;
 }
 
 .empty-card p {
-  color: #6c757d;
-  line-height: 1.6;
-  margin-bottom: 10px;
+  color: #999;
+  margin-bottom: 25px;
+  line-height: 1.5;
 }
 
-.series-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 25px;
-}
-
-.series-card {
-  background: white;
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  overflow: hidden;
+.explore-btn {
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
 }
 
-.series-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+.explore-btn:hover {
+  background: #5a67d8;
+  transform: translateY(-1px);
 }
 
-.card-image {
+.watched-content {
+  padding: 0 20px 20px;
+}
+
+.stats-section {
+  margin-bottom: 30px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stat-number {
+  font-size: 24px;
+  font-weight: bold;
+  color: #667eea;
+  margin-bottom: 5px;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #999;
+}
+
+.watched-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
+}
+
+.watched-card {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.watched-card:hover {
+  transform: scale(1.05);
+}
+
+.card-poster {
   position: relative;
-  height: 200px;
+  width: 100%;
+  height: 160px;
+  border-radius: 12px;
   overflow: hidden;
+  margin-bottom: 10px;
+  background: #333;
 }
 
-.card-image img {
+.poster-placeholder {
   width: 100%;
   height: 100%;
-  object-fit: cover;
-}
-
-.image-placeholder {
-  width: 100%;
-  height: 100%;
-  background: #f8f9fa;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 3rem;
-  color: #6c757d;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+}
+
+.placeholder-icon {
+  width: 40px;
+  height: 40px;
+  color: white;
+  opacity: 0.7;
 }
 
 .episodes-badge {
   position: absolute;
-  top: 10px;
-  right: 10px;
-  background: rgba(0, 123, 255, 0.9);
+  top: 8px;
+  right: 8px;
+  background: rgba(0, 0, 0, 0.8);
   color: white;
   padding: 4px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  font-weight: bold;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
 }
 
-.card-content {
-  padding: 20px;
-}
-
-.card-title {
-  font-size: 1.2rem;
-  margin: 0 0 10px;
-  color: #2c3e50;
-}
-
-.card-meta {
-  display: flex;
-  gap: 15px;
-  margin-bottom: 15px;
-  font-size: 14px;
-}
-
-.rating {
-  color: #ffc107;
-  font-weight: bold;
-}
-
-.episode-count {
-  color: #6c757d;
-}
-
-.recent-episodes h4 {
-  font-size: 14px;
-  margin-bottom: 10px;
-  color: #495057;
-}
-
-.episode-item {
+.progress-indicator {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  width: 24px;
+  height: 24px;
+  background: rgba(34, 197, 94, 0.8);
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 0;
-  font-size: 13px;
+  justify-content: center;
 }
 
-.season {
-  background: #e9ecef;
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-weight: bold;
-  min-width: 30px;
+.check-icon {
+  width: 14px;
+  height: 14px;
+  color: white;
+}
+
+.card-info {
   text-align: center;
 }
 
-.episode-name {
-  flex: 1;
-  color: #495057;
+.card-title {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 4px;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.remove-episode-btn {
-  background: none;
-  border: none;
-  color: #dc3545;
-  cursor: pointer;
-  padding: 2px;
-  font-size: 12px;
+.card-episodes {
+  font-size: 11px;
+  color: #22c55e;
+  margin: 0 0 2px;
+}
+
+.card-date {
+  font-size: 11px;
+  color: #666;
+  margin: 0;
 }
 
 .episodes-list {
   display: flex;
   flex-direction: column;
-  gap: 15px;
+  gap: 12px;
 }
 
-.episode-card {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  padding: 20px;
+.episode-item {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 20px;
+  gap: 15px;
+  padding: 15px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.episode-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.episode-number {
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: white;
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
 .episode-info {
   flex: 1;
 }
 
-.series-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+.episode-series {
+  font-size: 14px;
+  font-weight: 600;
+  color: white;
+  margin: 0 0 4px;
 }
 
-.series-name {
-  margin: 0;
-  color: #007bff;
-  font-size: 1.1rem;
-}
-
-.season-number {
-  background: #e9ecef;
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 12px;
-  color: #495057;
-}
-
-.episode-name {
-  margin: 0;
-  color: #2c3e50;
-  font-size: 1rem;
+.episode-title {
+  font-size: 13px;
+  color: #ccc;
+  margin: 0 0 6px;
 }
 
 .episode-meta {
-  margin-top: 5px;
-}
-
-.watched-id {
-  color: #6c757d;
-  font-size: 12px;
-}
-
-.episode-actions {
   display: flex;
-  gap: 10px;
+  gap: 12px;
+  font-size: 11px;
 }
 
-.view-series-btn {
-  background: #007bff;
+.season {
+  color: #667eea;
+  background: rgba(102, 126, 234, 0.2);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.watched-date {
+  color: #999;
+}
+
+.unwatch-btn {
+  width: 32px;
+  height: 32px;
+  background: rgba(239, 68, 68, 0.2);
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.unwatch-btn:hover {
+  background: rgba(239, 68, 68, 0.4);
+}
+
+.unwatch-icon {
+  width: 16px;
+  height: 16px;
+  color: #ef4444;
+}
+
+.load-more-container {
+  display: flex;
+  justify-content: center;
+  margin-top: 20px;
+}
+
+.load-more-btn {
+  background: rgba(255, 255, 255, 0.1);
   color: white;
   border: none;
-  padding: 8px 12px;
-  border-radius: 4px;
+  padding: 12px 24px;
+  border-radius: 8px;
   cursor: pointer;
-  font-size: 12px;
+  transition: all 0.2s ease;
 }
 
-.remove-btn {
-  background: #dc3545;
-  color: white;
-  border: none;
+.load-more-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 12px 0;
+  z-index: 100;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  color: #666;
+  transition: color 0.2s ease;
   padding: 8px 12px;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
 }
 
-.view-series-btn:hover {
-  background: #0056b3;
+.nav-item.active {
+  color: #667eea;
 }
 
-.remove-btn:hover {
-  background: #c82333;
+.nav-item:hover {
+  color: #999;
+}
+
+.nav-item.active:hover {
+  color: #667eea;
+}
+
+.nav-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.nav-label {
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .watched-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .card-poster {
+    height: 180px;
+  }
+  
+  .stats-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .watched-content {
+    padding: 0 15px 15px;
+  }
+  
+  .watched-header {
+    padding: 15px;
+  }
+  
+  .filter-tabs {
+    padding: 0 15px;
+  }
+  
+  .nav-label {
+    font-size: 10px;
+  }
+  
+  .nav-icon {
+    width: 20px;
+    height: 20px;
+  }
 }
 
 @media (max-width: 768px) {
-  .series-grid {
-    grid-template-columns: 1fr;
+  .watched-header {
+    padding: 15px;
   }
   
-  .filters {
-    flex-direction: column;
-    align-items: stretch;
+  .watched-content {
+    padding: 0 15px 15px;
   }
   
-  .filter-select, .clear-btn {
-    width: 100%;
-  }
-
-  .episode-card {
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .episode-actions {
-    justify-content: space-between;
+  .filter-tabs {
+    padding: 0 15px;
   }
 }
 </style>

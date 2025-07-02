@@ -1,86 +1,125 @@
 <template>
   <div class="favorites-view">
+    <!-- Header -->
     <div class="favorites-header">
-      <h1 class="page-title">❤️ Mis Favoritos</h1>
-      <button class="reload-btn" @click="reloadFavorites" :disabled="loading">
-        🔄 Actualizar
+      <button @click="goBack" class="back-button">
+        <ArrowLeft class="back-icon" />
+      </button>
+      <h1 class="page-title">Favorites</h1>
+      <button class="menu-button">
+        <MoreVertical class="menu-icon" />
       </button>
     </div>
 
     <div v-if="loading" class="loading-container">
-      <div class="loading-spinner"></div>
-      <p>Cargando series favoritas...</p>
+      <LoadingSpinner size="lg" />
+      <p>Loading favorites...</p>
     </div>
 
     <div v-else-if="!authStore.isAuthenticated" class="auth-required">
       <div class="auth-card">
-        <h2>Inicia sesión para ver tus favoritos</h2>
-        <p>Necesitas una cuenta para guardar tus series favoritas</p>
-        <router-link to="/login" class="btn btn-primary">Iniciar Sesión</router-link>
+        <div class="auth-icon">🔒</div>
+        <h2>Sign in to view favorites</h2>
+        <p>Create an account to save your favorite series</p>
+        <router-link to="/login" class="btn btn-primary">Sign In</router-link>
       </div>
     </div>
 
     <div v-else-if="isEmpty" class="empty-container">
       <div class="empty-card">
         <div class="empty-icon">💔</div>
-        <h2>No tienes favoritos aún</h2>
-        <p>Explora series y agrega las que más te gusten a tu lista de favoritos.</p>
+        <h2>No favorites yet</h2>
+        <p>Explore series and add the ones you love to your favorites list.</p>
         <button class="explore-btn" @click="$router.push('/')">
-          Explorar Series
+          Explore Series
         </button>
       </div>
     </div>
 
-    <div v-else class="favorites-grid">
-      <div 
-        v-for="favorite in favoritesStore.favorites" 
-        :key="favorite.series_id" 
-        class="series-card"
-        @click="goToSeriesDetail(favorite.series_id)"
-      >
-        <div class="series-poster">
-          <img
-            v-if="favorite.series_poster"
-            :src="favorite.series_poster"
-            :alt="favorite.series_name"
-            @error="handleImageError"
-          />
-          <div v-else class="poster-placeholder">🎬</div>
+    <div v-else class="favorites-content">
+      <!-- Stats -->
+      <div class="stats-section">
+        <div class="stat-item">
+          <span class="stat-number">{{ favoritesStore.favorites.length }}</span>
+          <span class="stat-label">Favorites</span>
         </div>
+      </div>
 
-        <div class="series-info">
-          <h3 class="series-title">{{ favorite.series_name }}</h3>
-          
-          <div class="series-meta">
-            <span class="meta-item">
-              Agregado: {{ formatDate(favorite.added_at) }}
-            </span>
-          </div>
-
-          <div class="card-actions">
-            <button 
-              class="detail-btn"
-              @click.stop="goToSeriesDetail(favorite.series_id)"
-            >
-              Ver Detalles
-            </button>
+      <!-- Favorites Grid -->
+      <div class="favorites-grid">
+        <div 
+          v-for="favorite in favoritesStore.favorites" 
+          :key="favorite.series_id" 
+          class="favorite-card"
+          @click="goToSeriesDetail(favorite.series_id)"
+        >
+          <div class="card-poster">
+            <img
+              v-if="favorite.series_poster"
+              :src="favorite.series_poster"
+              :alt="favorite.series_name"
+              @error="handleImageError"
+            />
+            <div v-else class="poster-placeholder">
+              <Tv class="placeholder-icon" />
+            </div>
+            
+            <!-- Favorite indicator -->
+            <div class="favorite-indicator">
+              <Heart class="heart-icon filled" />
+            </div>
+            
+            <!-- Remove button -->
             <button 
               class="remove-btn"
               @click.stop="removeFromFavorites(favorite.series_id)"
-              title="Quitar de favoritos"
+              title="Remove from favorites"
             >
-              🗑️
+              <X class="remove-icon" />
             </button>
+          </div>
+          
+          <div class="card-info">
+            <h3 class="card-title">{{ favorite.series_name }}</h3>
+            <p class="card-date">Added {{ formatDate(favorite.added_at) }}</p>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- Bottom Navigation -->
+    <nav class="bottom-nav">
+      <router-link to="/" class="nav-item" :class="{ active: $route.name === 'home' }">
+        <Compass class="nav-icon" />
+        <span class="nav-label">Explore</span>
+      </router-link>
+      
+      <router-link to="/watchlist" class="nav-item" :class="{ active: $route.name === 'watchlist' }">
+        <Clock class="nav-icon" />
+        <span class="nav-label">My shows</span>
+      </router-link>
+      
+      <router-link to="/watched" class="nav-item" :class="{ active: $route.name === 'watched' }">
+        <Calendar class="nav-icon" />
+        <span class="nav-label">Calendar</span>
+      </router-link>
+      
+      <router-link to="/favorites" class="nav-item" :class="{ active: $route.name === 'favorites' }">
+        <Bell class="nav-icon" />
+        <span class="nav-label">Notifications</span>
+      </router-link>
+    </nav>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { 
+  ArrowLeft, MoreVertical, Tv, Heart, X, 
+  Compass, Clock, Calendar, Bell 
+} from 'lucide-vue-next'
+import LoadingSpinner from '@/components/LoadingSpinner.vue'
 import { useFavoritesStore } from '@/stores/favorites'
 import { useAuthStore } from '@/stores/auth'
 import { useUIStore } from '@/stores/ui'
@@ -98,14 +137,22 @@ const isEmpty = computed(() =>
 const removeFromFavorites = async (seriesId) => {
   try {
     await favoritesStore.removeFromFavorites(seriesId)
-    uiStore.showToast('Serie removida de favoritos', 'success')
+    uiStore.showToast('Removed from favorites', 'success')
   } catch (error) {
-    uiStore.showToast('Error al remover de favoritos', 'error')
+    uiStore.showToast('Error removing from favorites', 'error')
   }
 }
 
-const goToSeriesDetail = (seriesId) => {
-  router.push(`/series/${seriesId}`)
+const goToSeriesDetail = (itemId, itemType = 'series') => {
+  if (itemType === 'movie') {
+    router.push({ name: 'movie-detail', params: { id: itemId } })
+  } else {
+    router.push({ name: 'series-detail', params: { id: itemId } })
+  }
+}
+
+const goBack = () => {
+  router.go(-1)
 }
 
 const handleImageError = (event) => {
@@ -113,21 +160,19 @@ const handleImageError = (event) => {
 }
 
 const formatDate = (dateString) => {
-  if (!dateString) return 'Fecha desconocida'
+  if (!dateString) return 'Unknown date'
   try {
-    return new Date(dateString).toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    })
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffTime = Math.abs(now - date)
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    
+    if (diffDays === 1) return 'yesterday'
+    if (diffDays < 7) return `${diffDays} days ago`
+    if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
+    return `${Math.floor(diffDays / 30)} months ago`
   } catch {
     return dateString
-  }
-}
-
-const reloadFavorites = async () => {
-  if (authStore.isAuthenticated) {
-    await favoritesStore.loadFavorites()
   }
 }
 
@@ -141,42 +186,43 @@ onMounted(() => {
 <style scoped>
 .favorites-view {
   min-height: 100vh;
-  padding: 20px;
-  background: #f8f9fa;
+  background: #1a1a1a;
+  color: white;
+  padding-bottom: 80px;
 }
 
 .favorites-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 30px;
-  padding: 20px 0;
+  padding: 20px;
+  background: #1a1a1a;
+  border-bottom: 1px solid #333;
+}
+
+.back-button, .menu-button {
+  width: 40px;
+  height: 40px;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: white;
+}
+
+.back-icon, .menu-icon {
+  width: 20px;
+  height: 20px;
 }
 
 .page-title {
-  font-size: 2.5rem;
-  color: #2c3e50;
+  font-size: 18px;
+  font-weight: 600;
   margin: 0;
-}
-
-.reload-btn {
-  background: #007bff;
   color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-  transition: background-color 0.3s ease;
-}
-
-.reload-btn:hover:not(:disabled) {
-  background: #0056b3;
-}
-
-.reload-btn:disabled {
-  background: #6c757d;
-  cursor: not-allowed;
 }
 
 .loading-container {
@@ -184,256 +230,327 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 400px;
-}
-
-.loading-spinner {
-  width: 40px;
-  height: 40px;
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #007bff;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  min-height: 60vh;
+  color: #666;
 }
 
 .auth-required {
   display: flex;
   justify-content: center;
-  padding: 60px 20px;
+  align-items: center;
+  min-height: 60vh;
+  padding: 20px;
 }
 
 .auth-card {
-  background: white;
-  border-radius: 12px;
-  padding: 50px 40px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 40px 30px;
   text-align: center;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  max-width: 500px;
+  max-width: 300px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.auth-icon {
+  font-size: 48px;
+  margin-bottom: 20px;
 }
 
 .auth-card h2 {
-  color: #2c3e50;
-  margin-bottom: 15px;
+  color: white;
+  margin-bottom: 10px;
+  font-size: 20px;
 }
 
 .auth-card p {
-  color: #6c757d;
+  color: #999;
   margin-bottom: 25px;
-  line-height: 1.6;
+  font-size: 14px;
+  line-height: 1.5;
 }
 
 .btn {
-  padding: 12px 30px;
+  padding: 12px 24px;
   border: none;
-  border-radius: 6px;
-  font-size: 16px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
   text-decoration: none;
   display: inline-block;
-  transition: background-color 0.3s ease;
+  transition: all 0.2s ease;
 }
 
 .btn-primary {
-  background: #007bff;
+  background: #667eea;
   color: white;
 }
 
 .btn-primary:hover {
-  background: #0056b3;
+  background: #5a67d8;
+  transform: translateY(-1px);
 }
 
 .empty-container {
   display: flex;
   justify-content: center;
-  padding: 60px 20px;
+  align-items: center;
+  min-height: 60vh;
+  padding: 20px;
 }
 
 .empty-card {
-  background: white;
-  border-radius: 12px;
-  padding: 50px 40px;
   text-align: center;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-  max-width: 500px;
+  max-width: 300px;
 }
 
 .empty-icon {
   font-size: 64px;
   margin-bottom: 20px;
+  opacity: 0.6;
 }
 
 .empty-card h2 {
-  color: #2c3e50;
-  margin-bottom: 15px;
+  color: white;
+  margin-bottom: 10px;
+  font-size: 20px;
 }
 
 .empty-card p {
-  color: #6c757d;
+  color: #999;
   margin-bottom: 25px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .explore-btn {
-  background: #007bff;
+  background: #667eea;
   color: white;
-  padding: 12px 30px;
   border: none;
-  border-radius: 6px;
-  font-size: 16px;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.3s ease;
+  transition: all 0.2s ease;
 }
 
 .explore-btn:hover {
-  background: #0056b3;
+  background: #5a67d8;
+  transform: translateY(-1px);
+}
+
+.favorites-content {
+  padding: 20px;
+}
+
+.stats-section {
+  margin-bottom: 30px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 20px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.stat-number {
+  font-size: 32px;
+  font-weight: bold;
+  color: #667eea;
+  margin-bottom: 5px;
+}
+
+.stat-label {
+  font-size: 14px;
+  color: #999;
 }
 
 .favorites-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 25px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 15px;
 }
 
-.series-card {
-  background: white;
-  border-radius: 12px;
-  padding: 20px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+.favorite-card {
   cursor: pointer;
-  transition: all 0.3s ease;
-  display: flex;
-  gap: 20px;
-  border-left: 4px solid #e74c3c;
+  transition: transform 0.2s ease;
 }
 
-.series-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+.favorite-card:hover {
+  transform: scale(1.05);
 }
 
-.series-poster {
-  flex-shrink: 0;
+.card-poster {
+  position: relative;
+  width: 100%;
+  height: 160px;
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 10px;
+  background: #333;
 }
 
-.series-poster img, .poster-placeholder {
-  width: 80px;
-  height: 120px;
-  border-radius: 6px;
+.card-poster img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
 }
 
 .poster-placeholder {
-  background: #f8f9fa;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 24px;
-  color: #6c757d;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
 }
 
-.series-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-}
-
-.series-title {
-  font-size: 1.25rem;
-  margin: 0 0 10px;
-  color: #2c3e50;
-  line-height: 1.3;
-}
-
-.series-meta {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 15px;
-  flex-wrap: wrap;
-}
-
-.meta-item {
-  padding: 3px 8px;
-  background: #e9ecef;
-  border-radius: 12px;
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.card-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-top: auto;
-}
-
-.detail-btn {
-  background: #007bff;
+.placeholder-icon {
+  width: 40px;
+  height: 40px;
   color: white;
-  padding: 6px 12px;
-  border: none;
-  border-radius: 4px;
-  font-size: 12px;
-  cursor: pointer;
-  flex: 1;
-  transition: background-color 0.3s ease;
+  opacity: 0.7;
 }
 
-.detail-btn:hover {
-  background: #0056b3;
+.favorite-indicator {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 24px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.7);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.heart-icon {
+  width: 14px;
+  height: 14px;
+  color: #e74c3c;
+}
+
+.heart-icon.filled {
+  fill: #e74c3c;
 }
 
 .remove-btn {
-  background: #dc3545;
-  color: white;
-  padding: 6px 8px;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  background: rgba(0, 0, 0, 0.7);
   border: none;
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: background-color 0.3s ease;
+  opacity: 0;
+  transition: opacity 0.2s ease;
 }
 
-.remove-btn:hover {
-  background: #c82333;
+.favorite-card:hover .remove-btn {
+  opacity: 1;
+}
+
+.remove-icon {
+  width: 12px;
+  height: 12px;
+  color: white;
+}
+
+.card-info {
+  text-align: center;
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 500;
+  margin: 0 0 4px;
+  color: white;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-date {
+  font-size: 11px;
+  color: #666;
+  margin: 0;
+}
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: #1a1a1a;
+  border-top: 1px solid #333;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 12px 0;
+  z-index: 100;
+}
+
+.nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-decoration: none;
+  color: #666;
+  transition: color 0.2s ease;
+  padding: 8px 12px;
+}
+
+.nav-item.active {
+  color: #667eea;
+}
+
+.nav-item:hover {
+  color: #999;
+}
+
+.nav-item.active:hover {
+  color: #667eea;
+}
+
+.nav-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.nav-label {
+  font-size: 11px;
+  font-weight: 500;
 }
 
 /* Responsive */
-@media (max-width: 768px) {
-  .favorites-view {
+@media (max-width: 480px) {
+  .favorites-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .card-poster {
+    height: 180px;
+  }
+  
+  .favorites-content {
     padding: 15px;
   }
   
-  .page-title {
-    font-size: 2rem;
-  }
-  
   .favorites-header {
-    flex-direction: column;
-    gap: 15px;
-    align-items: stretch;
-  }
-  
-  .favorites-grid {
-    grid-template-columns: 1fr;
-  }
-  
-  .series-card {
-    flex-direction: column;
-    text-align: center;
-  }
-  
-  .series-poster {
-    align-self: center;
-  }
-  
-  .series-poster img, .poster-placeholder {
-    width: 120px;
-    height: 180px;
+    padding: 15px;
   }
 }
 </style>

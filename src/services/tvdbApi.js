@@ -89,12 +89,64 @@ class TVDBApi {
     const params = { query: query.trim() }
     if (type) params.type = type
     console.log('🔍 Buscando:', params)
-    const res = await this.client.get('/search', { params })
-    return res.data.status === 'success' ? res.data.data || [] : []
+    
+    try {
+      const res = await this.client.get('/search', { params })
+      if (res.data.status === 'success' && res.data.data) {
+        const results = res.data.data
+        console.log(`✅ Búsqueda exitosa: ${results.length} resultados para "${query}"`)
+        return results
+      }
+      return []
+    } catch (error) {
+      console.error(`❌ Error en búsqueda para "${query}":`, error.message)
+      return []
+    }
   }
 
-  async searchSeries(q)  { return this.search(q, 'series') }
-  async searchMovies(q)  { return this.search(q, 'movie')   }
+  async searchSeries(query) { 
+    const results = await this.search(query, 'series')
+    return results.map(item => this.formatSeriesSearchResult(item))
+  }
+
+  async searchMovies(query) { 
+    const results = await this.search(query, 'movie')
+    return results.map(item => this.formatMovieSearchResult(item))
+  }
+
+  // Formatear resultados de búsqueda de series
+  formatSeriesSearchResult(item) {
+    return {
+      id: item.id || item.tvdb_id,
+      name: item.name || item.title || 'Sin título',
+      overview: item.overview || 'Sin descripción disponible',
+      firstAired: item.first_air_date || item.firstAired,
+      year: item.year || this.extractYearFromDate(item.first_air_date || item.firstAired),
+      poster: this.getImageUrl(item.image_url || item.poster || item.image),
+      fanart: this.getImageUrl(item.fanart),
+      rating: item.score || 0,
+      status: item.status,
+      genres: item.genres || [],
+      type: 'series'
+    }
+  }
+
+  // Formatear resultados de búsqueda de películas
+  formatMovieSearchResult(item) {
+    return {
+      id: item.id || item.tvdb_id,
+      name: item.name || item.title || 'Sin título',
+      overview: item.overview || 'Sin descripción disponible',
+      releaseDate: item.release_date || item.releaseDate,
+      year: item.year || this.extractYearFromDate(item.release_date || item.releaseDate),
+      poster: this.getImageUrl(item.image_url || item.poster || item.image),
+      fanart: this.getImageUrl(item.fanart),
+      rating: item.score || 0,
+      runtime: item.runtime,
+      genres: item.genres || [],
+      type: 'movie'
+    }
+  }
 
   async getSeriesById(id, extended = true) {
     const cleanId = this.validateAndCleanId(id)
@@ -105,6 +157,17 @@ class TVDBApi {
       return this.formatSeriesData(res.data.data)
     }
     throw new Error('Serie no encontrada')
+  }
+
+  async getMovieById(id, extended = true) {
+    const cleanId = this.validateAndCleanId(id)
+    const endpoint = extended ? `/movies/${cleanId}/extended` : `/movies/${cleanId}`
+    console.log(`🎬 Obteniendo película ID: ${cleanId}`)
+    const res = await this.client.get(endpoint)
+    if (res.data.status === 'success' && res.data.data) {
+      return this.formatMovieData(res.data.data)
+    }
+    throw new Error('Película no encontrada')
   }
 
   async getSeriesEpisodes(seriesId, page = 0) {
@@ -137,50 +200,53 @@ class TVDBApi {
     return []
   }
 
-  async getMovieById(id, extended = true) {
-    const cleanId = this.validateAndCleanId(id)
-    const endpoint = extended ? `/movies/${cleanId}/extended` : `/movies/${cleanId}`
-    console.log(`🎬 Obteniendo película ID: ${cleanId}`)
-    const res = await this.client.get(endpoint)
-    if (res.data.status === 'success' && res.data.data) {
-      return this.formatMovieData(res.data.data)
-    }
-    throw new Error('Película no encontrada')
-  }
-
-  // 👉 Simulación simple
-  async getTrending(type = 'series') {
-    console.log(`📈 Obteniendo trending ${type}`)
-    const fallback = type === 'movie' ? 'm' : 'a'
-    return this.search(fallback, type)
-  }
-
-  // 🔄 Ahora sí devolvemos detalles completos
+  // Obtener contenido trending (simulado con búsquedas)
   async getTrendingSeries() {
-    try {
-      console.log('📈 Obteniendo trending series detalladas')
-      const raw = await this.getTrending('series')
-      const full = await Promise.all(
-        raw.map(item => this.getSeriesById(item.id, true))
-      )
-      return full
-    } catch (err) {
-      console.error('❌ Error en getTrendingSeries:', err)
-      return []
+    console.log('📈 Obteniendo trending series')
+    const queries = [
+      'Game of Thrones', 'Breaking Bad', 'The Office', 'Friends', 
+      'Stranger Things', 'The Mandalorian', 'House of Dragon', 'The Last of Us',
+      'Better Call Saul', 'The Crown', 'Succession', 'Ozark'
+    ]
+    
+    const results = []
+    for (const query of queries) {
+      try {
+        const searchResults = await this.searchSeries(query)
+        if (searchResults.length > 0) {
+          results.push(searchResults[0])
+        }
+      } catch (error) {
+        console.warn(`Error buscando "${query}":`, error.message)
+      }
+      // Pequeña pausa para no sobrecargar la API
+      await new Promise(resolve => setTimeout(resolve, 100))
     }
+    return results
   }
 
   async getTrendingMovies() {
-    try {
-      console.log('📈 Obteniendo trending movies detalladas')
-      const raw = await this.getTrending('movie')
-      const full = await Promise.all(
-        raw.map(item => this.getMovieById(item.id, true))
-      )
-      return full
-    } catch {
-      return []
+    console.log('📈 Obteniendo trending movies')
+    const queries = [
+      'Avatar', 'Titanic', 'Avengers', 'Star Wars', 'Jurassic Park',
+      'Fast and Furious', 'Mission Impossible', 'James Bond', 'Batman', 'Spider-Man',
+      'Top Gun', 'Black Panther', 'Iron Man', 'Wonder Woman'
+    ]
+    
+    const results = []
+    for (const query of queries) {
+      try {
+        const searchResults = await this.searchMovies(query)
+        if (searchResults.length > 0) {
+          results.push(searchResults[0])
+        }
+      } catch (error) {
+        console.warn(`Error buscando película "${query}":`, error.message)
+      }
+      // Pequeña pausa para no sobrecargar la API
+      await new Promise(resolve => setTimeout(resolve, 100))
     }
+    return results
   }
 
   formatSeriesData(d) {
@@ -207,7 +273,7 @@ class TVDBApi {
       seasons:  d.seasons || [],
       episodes: d.episodes || [],
 
-      year:     d.year,
+      year:     d.year || this.extractYearFromDate(d.firstAired),
       airsTime: d.airsTime,
       airsDays: d.airsDays,
       runtime:  d.runtime,
@@ -224,7 +290,7 @@ class TVDBApi {
       slug:     m.slug,
       overview: m.overview || 'Sin descripción disponible',
       releaseDate: m.releaseDate,
-      status:   m.status?.name || 'Unknown',
+      status:   m.status?.name || 'Released',
       rating:   m.score || 0,
       runtime:  m.runtime,
       genres:   m.genres?.map(g => g.name) || [],
@@ -236,6 +302,8 @@ class TVDBApi {
       poster:   this.getImageUrl(m.image),
       fanart:   this.getImageUrl(m.fanart),
       banner:   this.getImageUrl(m.banner),
+
+      year:     m.year || this.extractYearFromDate(m.releaseDate),
 
       originalData: m
     }
@@ -252,6 +320,16 @@ class TVDBApi {
     // path relativo
     if (!p.startsWith('/')) p = '/' + p
     return `https://artworks.thetvdb.com${p}`
+  }
+
+  // Utility method para extraer año de fecha
+  extractYearFromDate(dateString) {
+    if (!dateString) return null
+    try {
+      return new Date(dateString).getFullYear()
+    } catch {
+      return null
+    }
   }
 
   // Para debug

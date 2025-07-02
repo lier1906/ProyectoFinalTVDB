@@ -85,7 +85,14 @@ const isFavorite = computed(() => {
 })
 
 function goToDetail() {
-  router.push({ name: 'series-detail', params: { id: props.series.id } })
+  // Detectar si es película o serie basado en las propiedades
+  const isMovie = props.series.type === 'movie' || props.series.releaseDate
+  
+  if (isMovie) {
+    router.push({ name: 'movie-detail', params: { id: props.series.id } })
+  } else {
+    router.push({ name: 'series-detail', params: { id: props.series.id } })
+  }
 }
 
 async function toggleWatchlist() {
