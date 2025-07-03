@@ -201,23 +201,34 @@ export const useWatchedStore = defineStore('watched', () => {
   }
 
   const markAsUnwatched = async (episodeId) => {
-    const authStore = useAuthStore()
-    if (!authStore.isAuthenticated) return
+  const authStore = useAuthStore()
+  if (!authStore.isAuthenticated) return
 
-    try {
-      console.log('🗑️ Marking as unwatched:', episodeId)
-      await tursoDb.removeWatchedEpisode(authStore.user.id, episodeId)
-      
-      // Remover del array local
-      watchedEpisodes.value = watchedEpisodes.value.filter(ep => ep.episode_id !== episodeId)
-      localStorageService.setItem('watchedEpisodes', watchedEpisodes.value)
-      console.log('✅ Marked as unwatched successfully')
-    } catch (error) {
-      console.error('❌ Error unmarking episode as watched:', error)
-      throw error
-    }
+  try {
+    console.log('🗑️ Removing from watched:', episodeId)
+    
+    // Primero remover de la base de datos
+    await tursoDb.removeWatchedEpisode(authStore.user.id, episodeId)
+    console.log('✅ Removed from database')
+    
+    // Luego remover del array local
+    const beforeCount = watchedEpisodes.value.length
+    watchedEpisodes.value = watchedEpisodes.value.filter(ep => ep.episode_id !== episodeId)
+    const afterCount = watchedEpisodes.value.length
+    
+    console.log(`📊 Episodes count: ${beforeCount} -> ${afterCount}`)
+    
+    // Actualizar localStorage
+    localStorageService.setItem('watchedEpisodes', watchedEpisodes.value)
+    
+    console.log('✅ Successfully removed from watched list')
+    
+    return true
+  } catch (error) {
+    console.error('❌ Error removing from watched:', error)
+    throw error
   }
-
+}
   const isEpisodeWatched = (episodeId) => {
     return watchedEpisodes.value.some(ep => ep.episode_id == episodeId)
   }

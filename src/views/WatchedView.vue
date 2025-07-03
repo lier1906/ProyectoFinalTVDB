@@ -257,17 +257,27 @@ const watchedStats = computed(() => {
 
 // Methods
 const markAsUnwatched = async (episodeId) => {
+  if (!confirm('Are you sure you want to mark this episode as unwatched?')) {
+    return
+  }
+
   try {
     console.log('🗑️ Marking episode as unwatched:', episodeId)
+    
+    // Llamar al store para eliminar
     await watchedStore.markAsUnwatched(episodeId)
+    
+    // Mostrar mensaje de éxito
     uiStore.showToast('Episode marked as unwatched', 'success')
     
-    // Refrescar datos después de la operación
-    setTimeout(() => {
-      watchedStore.loadWatchedEpisodes()
+    // Forzar actualización inmediata de los datos
+    setTimeout(async () => {
+      await watchedStore.loadWatchedEpisodes()
+      console.log('✅ Watched episodes reloaded after unmarking')
     }, 500)
+    
   } catch (error) {
-    console.error('Error marking as unwatched:', error)
+    console.error('❌ Error marking as unwatched:', error)
     uiStore.showToast('Error updating episode status', 'error')
   }
 }
@@ -278,10 +288,30 @@ const clearAllWatched = async () => {
   }
   
   try {
+    console.log('🧹 Clearing all watched episodes...')
+    
+    // Limpiar usando el store
     await watchedStore.clearWatchedEpisodes()
+    
+    // Si hay un método en tursoDb para limpiar todo
+    if (authStore.isAuthenticated) {
+      try {
+        await tursoDb.clearUserData(authStore.user.id)
+        console.log('✅ Cleared all data from database')
+      } catch (dbError) {
+        console.warn('⚠️ Could not clear database, but local data cleared:', dbError)
+      }
+    }
+    
     uiStore.showToast('Watch history cleared', 'success')
+    
+    // Forzar recarga
+    setTimeout(() => {
+      watchedStore.loadWatchedEpisodes()
+    }, 500)
+    
   } catch (error) {
-    console.error('Error clearing watch history:', error)
+    console.error('❌ Error clearing watch history:', error)
     uiStore.showToast('Error clearing watch history', 'error')
   }
 }
