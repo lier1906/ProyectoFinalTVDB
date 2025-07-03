@@ -341,6 +341,7 @@ class TursoService {
       return false
     }
   }
+  
 
   // =================== ESTADÍSTICAS ===================
   
@@ -463,6 +464,7 @@ class TursoService {
       console.error('❌ Error in database debug:', error)
     }
   }
+  
 }
 
 export default new TursoService()
