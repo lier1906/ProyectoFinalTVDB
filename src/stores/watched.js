@@ -8,63 +8,62 @@ export const useWatchedStore = defineStore('watched', () => {
   const watchedEpisodes = ref([])
   const loading = ref(false)
 
- // En watched.js store, actualiza el computed watchedSeries:
-
-const watchedSeries = computed(() => {
-  console.log('🔍 Computing watchedSeries from:', watchedEpisodes.value.length, 'episodes')
-  
-  const seriesMap = new Map()
-  const moviesArray = []
-  
-  watchedEpisodes.value.forEach(episode => {
-    console.log('📺 Processing episode:', episode)
+  // En watched.js store, actualiza el computed watchedSeries:
+  const watchedSeries = computed(() => {
+    console.log('🔍 Computing watchedSeries from:', watchedEpisodes.value.length, 'episodes')
     
-    // Si es película
-    if (episode.is_movie || episode.episode_id?.startsWith('movie_')) {
-      moviesArray.push({
-        id: episode.series_id,
-        name: episode.series_name,
-        type: 'movie',
-        watched_at: episode.watched_at,
-        poster_url: episode.poster_url, // Incluir poster
-        series_id: episode.series_id
-      })
-    } else {
-      // Es serie normal
-      if (!seriesMap.has(episode.series_id)) {
-        seriesMap.set(episode.series_id, {
-          series_id: episode.series_id,
-          series_name: episode.series_name,
-          type: 'series',
-          episodes: [],
-          lastWatched: episode.watched_at,
-          poster_url: episode.poster_url // Incluir poster
+    const seriesMap = new Map()
+    const moviesArray = []
+    
+    watchedEpisodes.value.forEach(episode => {
+      console.log('📺 Processing episode:', episode)
+      
+      // Si es película
+      if (episode.is_movie || episode.episode_id?.startsWith('movie_')) {
+        moviesArray.push({
+          id: episode.series_id,
+          name: episode.series_name,
+          type: 'movie',
+          watched_at: episode.watched_at,
+          poster_url: episode.poster_url,
+          series_id: episode.series_id
         })
+      } else {
+        // Es serie normal
+        if (!seriesMap.has(episode.series_id)) {
+          seriesMap.set(episode.series_id, {
+            series_id: episode.series_id,
+            series_name: episode.series_name,
+            type: 'series',
+            episodes: [],
+            lastWatched: episode.watched_at,
+            poster_url: episode.poster_url
+          })
+        }
+        
+        const currentSeries = seriesMap.get(episode.series_id)
+        currentSeries.episodes.push(episode)
+        
+        // Actualizar poster si no existe
+        if (!currentSeries.poster_url && episode.poster_url) {
+          currentSeries.poster_url = episode.poster_url
+        }
+        
+        // Actualizar última fecha si es más reciente
+        if (new Date(episode.watched_at) > new Date(currentSeries.lastWatched)) {
+          currentSeries.lastWatched = episode.watched_at
+        }
       }
-      
-      const currentSeries = seriesMap.get(episode.series_id)
-      currentSeries.episodes.push(episode)
-      
-      // Actualizar poster si no existe
-      if (!currentSeries.poster_url && episode.poster_url) {
-        currentSeries.poster_url = episode.poster_url
-      }
-      
-      // Actualizar última fecha si es más reciente
-      if (new Date(episode.watched_at) > new Date(currentSeries.lastWatched)) {
-        currentSeries.lastWatched = episode.watched_at
-      }
-    }
+    })
+    
+    const result = [
+      ...Array.from(seriesMap.values()),
+      ...moviesArray
+    ]
+    
+    console.log('✅ watchedSeries computed result:', result)
+    return result
   })
-  
-  const result = [
-    ...Array.from(seriesMap.values()),
-    ...moviesArray
-  ]
-  
-  console.log('✅ watchedSeries computed result:', result)
-  return result
-})
 
   const loadWatchedEpisodes = async () => {
     const authStore = useAuthStore()
@@ -129,19 +128,19 @@ const watchedSeries = computed(() => {
         episode.name,
         episode.seasonNumber || episode.season_number || 1,
         episode.number || episode.episode_number || 1,
-        series.poster || series.image || null // Agregar poster
+        series.poster || series.image || null
       )
       
       // Agregar al array local
       const newWatchedEpisode = {
-        id: Date.now(), // ID temporal hasta que se sincronice con DB
+        id: Date.now(),
         series_id: series.id,
         episode_id: episode.id,
         series_name: series.name,
         episode_name: episode.name,
         season_number: episode.seasonNumber || episode.season_number || 1,
         episode_number: episode.number || episode.episode_number || 1,
-        poster_url: series.poster || series.image || null, // Agregar poster
+        poster_url: series.poster || series.image || null,
         watched_at: new Date().toISOString(),
         is_movie: false
       }
@@ -168,16 +167,15 @@ const watchedSeries = computed(() => {
     try {
       console.log('🎬 Marking movie as watched:', movie)
       
-      // Usar el mismo sistema de episodes pero con datos de película
       await tursoDb.markAsWatched(
         authStore.user.id,
         movie.id,
-        `movie_${movie.id}`, // ID único para película
+        `movie_${movie.id}`,
         movie.name,
         'Full Movie',
         1,
         1,
-        movie.poster || movie.image || null // Agregar poster
+        movie.poster || movie.image || null
       )
       
       const watchedMovie = {
@@ -188,7 +186,7 @@ const watchedSeries = computed(() => {
         episode_name: 'Full Movie',
         season_number: 1,
         episode_number: 1,
-        poster_url: movie.poster || movie.image || null, // Agregar poster
+        poster_url: movie.poster || movie.image || null,
         watched_at: new Date().toISOString(),
         is_movie: true
       }

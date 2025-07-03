@@ -185,6 +185,36 @@
             </div>
           </div>
         </div>
+
+        <!-- Episodes sin temporada seleccionada -->
+        <div v-else-if="episodes.length && !selectedSeason" class="episodes-section">
+          <h3 class="section-title">Episodes</h3>
+          <div class="episodes-list">
+            <div
+              v-for="episode in episodes.slice(0, 10)"
+              :key="episode.id"
+              class="episode-item"
+              @click="playEpisode(episode)"
+            >
+              <div class="episode-number">{{ episode.number }}</div>
+              <div class="episode-info">
+                <h4 class="episode-title">{{ episode.name }}</h4>
+                <p class="episode-overview">{{ episode.overview || 'No description available.' }}</p>
+                <div class="episode-meta">
+                  <span v-if="episode.firstAired">{{ formatDate(episode.firstAired) }}</span>
+                  <span v-if="episode.runtime">{{ episode.runtime }}m</span>
+                </div>
+              </div>
+              <button 
+                class="episode-watched-btn"
+                :class="{ watched: isEpisodeWatched(episode.id) }"
+                @click.stop="toggleEpisodeWatched(episode)"
+              >
+                <Check class="check-icon" />
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -243,6 +273,15 @@ const displayedEpisodes = computed(() => {
   }
   return episodes.value
 })
+
+const isEpisodeWatched = (episodeId) => {
+  return watchedStore.isEpisodeWatched(episodeId)
+}
+
+// Watcher para refrescar cuando cambien los episodios vistos
+watch(() => watchedStore.watchedEpisodes, () => {
+  // Forzar re-render cuando cambien los episodios vistos
+}, { deep: true })
 
 // Methods
 const validateSeriesId = () => {
@@ -347,7 +386,6 @@ const toggleFavorite = async () => {
   }
 }
 
-// También actualiza la función markAsWatched para marcar toda la serie:
 const markAsWatched = async () => {
   if (!authStore.isAuthenticated) {
     router.push('/login')
@@ -367,11 +405,17 @@ const markAsWatched = async () => {
       
       const seriesData = {
         id: series.value.id,
-        name: series.value.name
+        name: series.value.name,
+        poster: series.value.poster
       }
       
       await watchedStore.markAsWatched(episodeData, seriesData)
       uiStore.showToast('Episode marked as watched', 'success')
+      
+      // Refrescar datos
+      setTimeout(() => {
+        watchedStore.loadWatchedEpisodes()
+      }, 300)
     } else {
       uiStore.showToast('No episodes available to mark as watched', 'info')
     }
@@ -405,7 +449,8 @@ const toggleEpisodeWatched = async (episode) => {
       // Asegurar que la serie tenga la estructura correcta  
       const seriesData = {
         id: series.value.id,
-        name: series.value.name
+        name: series.value.name,
+        poster: series.value.poster
       }
       
       console.log('📺 Episode data:', episodeData)
@@ -414,6 +459,12 @@ const toggleEpisodeWatched = async (episode) => {
       await watchedStore.markAsWatched(episodeData, seriesData)
       uiStore.showToast('Episode marked as watched', 'success')
     }
+    
+    // Forzar actualización de los datos
+    setTimeout(() => {
+      watchedStore.loadWatchedEpisodes()
+    }, 300)
+    
   } catch (error) {
     console.error('❌ Error toggling episode watched status:', error)
     uiStore.showToast('Error updating episode status', 'error')

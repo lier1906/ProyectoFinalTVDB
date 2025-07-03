@@ -199,7 +199,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
   ArrowLeft, Trash2, Tv, Film, PlayCircle, Check, X, 
@@ -217,6 +217,8 @@ const uiStore = useUIStore()
 
 const activeTab = ref('series')
 const showAllEpisodes = ref(false)
+
+// Computed properties
 const loading = computed(() => watchedStore.loading)
 
 const isEmpty = computed(() => {
@@ -253,10 +255,17 @@ const watchedStats = computed(() => {
   }
 })
 
+// Methods
 const markAsUnwatched = async (episodeId) => {
   try {
+    console.log('🗑️ Marking episode as unwatched:', episodeId)
     await watchedStore.markAsUnwatched(episodeId)
     uiStore.showToast('Episode marked as unwatched', 'success')
+    
+    // Refrescar datos después de la operación
+    setTimeout(() => {
+      watchedStore.loadWatchedEpisodes()
+    }, 500)
   } catch (error) {
     console.error('Error marking as unwatched:', error)
     uiStore.showToast('Error updating episode status', 'error')
@@ -321,6 +330,15 @@ const formatDate = (dateString) => {
   }
 }
 
+// Watchers
+watch(() => authStore.isAuthenticated, (isAuth) => {
+  if (isAuth) {
+    console.log('👤 User authenticated, loading watched episodes...')
+    watchedStore.loadWatchedEpisodes()
+  }
+}, { immediate: true })
+
+// Lifecycle
 onMounted(async () => {
   console.log('🔄 WatchedView mounted')
   if (authStore.isAuthenticated) {
