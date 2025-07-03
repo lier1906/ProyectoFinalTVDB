@@ -51,7 +51,7 @@
           v-for="item in watchlistStore.watchlist" 
           :key="item.series_id" 
           class="watchlist-card"
-          @click="goToSeriesDetail(item.series_id)"
+          @click="goToSeriesDetail(item)"
         >
           <div class="card-poster">
             <img
@@ -173,11 +173,16 @@ const moveToFavorites = async (seriesId) => {
   }
 }
 
-const goToSeriesDetail = (itemId, itemType = 'series') => {
-  if (itemType === 'movie') {
-    router.push({ name: 'movie-detail', params: { id: itemId } })
+const goToSeriesDetail = (item) => {
+  console.log('🔗 Navigating to detail for watchlist item:', item)
+  
+  // Determinar el tipo basado en item_type
+  if (item.item_type === 'movie') {
+    console.log('🎬 Going to movie detail')
+    router.push({ name: 'movie-detail', params: { id: item.series_id } })
   } else {
-    router.push({ name: 'series-detail', params: { id: itemId } })
+    console.log('📺 Going to series detail')
+    router.push({ name: 'series-detail', params: { id: item.series_id } })
   }
 }
 

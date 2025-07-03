@@ -51,7 +51,7 @@
           v-for="favorite in favoritesStore.favorites" 
           :key="favorite.series_id" 
           class="favorite-card"
-          @click="goToSeriesDetail(favorite.series_id)"
+          @click="goToSeriesDetail(favorite)"
         >
           <div class="card-poster">
             <img
@@ -143,11 +143,16 @@ const removeFromFavorites = async (seriesId) => {
   }
 }
 
-const goToSeriesDetail = (itemId, itemType = 'series') => {
-  if (itemType === 'movie') {
-    router.push({ name: 'movie-detail', params: { id: itemId } })
+const goToSeriesDetail = (favorite) => {
+  console.log('🔗 Navigating to detail for favorite:', favorite)
+  
+  // Determinar el tipo basado en item_type
+  if (favorite.item_type === 'movie') {
+    console.log('🎬 Going to movie detail')
+    router.push({ name: 'movie-detail', params: { id: favorite.series_id } })
   } else {
-    router.push({ name: 'series-detail', params: { id: itemId } })
+    console.log('📺 Going to series detail')
+    router.push({ name: 'series-detail', params: { id: favorite.series_id } })
   }
 }
 

@@ -19,7 +19,7 @@
         @click="activeTab = 'series'"
       >
         <Tv class="tab-icon" />
-        Series
+        Series & Movies
       </button>
       <button 
         class="tab-button"
@@ -66,7 +66,7 @@
           </div>
           <div class="stat-item">
             <span class="stat-number">{{ watchedStats.uniqueSeries }}</span>
-            <span class="stat-label">Series</span>
+            <span class="stat-label">Shows</span>
           </div>
           <div class="stat-item">
             <span class="stat-number">{{ watchedStats.hoursWatched }}</span>
@@ -79,19 +79,31 @@
       <div v-if="activeTab === 'series'" class="series-section">
         <div class="watched-grid">
           <div 
-            v-for="series in watchedStore.watchedSeries" 
-            :key="series.series_id" 
+            v-for="item in watchedStore.watchedSeries" 
+            :key="`${item.type}-${item.series_id}`" 
             class="watched-card"
-            @click="goToSeriesDetail(series.series_id)"
+            @click="goToDetail(item)"
           >
             <div class="card-poster">
-              <div class="poster-placeholder">
-                <Tv class="placeholder-icon" />
+              <img
+                v-if="item.poster_url"
+                :src="item.poster_url"
+                :alt="item.name || item.series_name"
+                @error="handleImageError"
+                class="poster-image"
+              />
+              <div v-else class="poster-placeholder">
+                <component :is="item.type === 'movie' ? Film : Tv" class="placeholder-icon" />
               </div>
               
-              <!-- Episodes count badge -->
-              <div class="episodes-badge">
-                {{ series.episodes.length }} ep
+              <!-- Badge para tipo de contenido -->
+              <div class="content-type-badge">
+                {{ item.type === 'movie' ? 'Movie' : 'TV' }}
+              </div>
+              
+              <!-- Badge de episodios para series -->
+              <div v-if="item.type === 'series' && item.episodes" class="episodes-badge">
+                {{ item.episodes.length }} ep
               </div>
               
               <!-- Progress indicator -->
@@ -101,9 +113,10 @@
             </div>
             
             <div class="card-info">
-              <h3 class="card-title">{{ series.series_name }}</h3>
-              <p class="card-episodes">{{ series.episodes.length }} watched</p>
-              <p class="card-date">Last: {{ formatDate(series.lastWatched) }}</p>
+              <h3 class="card-title">{{ item.name || item.series_name }}</h3>
+              <p v-if="item.type === 'series'" class="card-episodes">{{ item.episodes?.length || 0 }} watched</p>
+              <p v-else class="card-episodes">Watched</p>
+              <p class="card-date">{{ formatDate(item.lastWatched || item.watched_at) }}</p>
             </div>
           </div>
         </div>
@@ -114,19 +127,29 @@
         <div class="episodes-list">
           <div 
             v-for="episode in displayedEpisodes" 
-            :key="episode.id"
+            :key="episode.id || episode.episode_id"
             class="episode-item"
             @click="goToSeriesDetail(episode.series_id)"
           >
-            <div class="episode-number">
-              {{ episode.episode_number || 'E?' }}
+            <div class="episode-poster">
+              <img
+                v-if="episode.poster_url"
+                :src="episode.poster_url"
+                :alt="episode.series_name"
+                @error="handleImageError"
+                class="episode-poster-image"
+              />
+              <div v-else class="episode-poster-placeholder">
+                <component :is="episode.is_movie ? Film : Tv" class="poster-placeholder-icon" />
+              </div>
             </div>
             
             <div class="episode-info">
               <h4 class="episode-series">{{ episode.series_name }}</h4>
               <p class="episode-title">{{ episode.episode_name }}</p>
               <div class="episode-meta">
-                <span class="season">S{{ episode.season_number || '?' }}</span>
+                <span v-if="!episode.is_movie" class="season">S{{ episode.season_number || '?' }}E{{ episode.episode_number || '?' }}</span>
+                <span v-else class="season">Movie</span>
                 <span class="watched-date">{{ formatDate(episode.watched_at) }}</span>
               </div>
             </div>
@@ -179,7 +202,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { 
-  ArrowLeft, Trash2, Tv, PlayCircle, Check, X, 
+  ArrowLeft, Trash2, Tv, Film, PlayCircle, Check, X, 
   Compass, Clock, Heart
 } from 'lucide-vue-next'
 import LoadingSpinner from '@/components/LoadingSpinner.vue'
@@ -196,9 +219,14 @@ const activeTab = ref('series')
 const showAllEpisodes = ref(false)
 const loading = computed(() => watchedStore.loading)
 
-const isEmpty = computed(() => 
-  authStore.isAuthenticated && watchedStore.watchedEpisodes.length === 0
-)
+const isEmpty = computed(() => {
+  console.log('🔍 Computing isEmpty:', {
+    isAuthenticated: authStore.isAuthenticated,
+    episodesLength: watchedStore.watchedEpisodes.length,
+    watchedSeries: watchedStore.watchedSeries.length
+  })
+  return authStore.isAuthenticated && watchedStore.watchedEpisodes.length === 0
+})
 
 const displayedEpisodes = computed(() => {
   const episodes = watchedStore.watchedEpisodes
@@ -209,10 +237,14 @@ const displayedEpisodes = computed(() => {
 })
 
 const watchedStats = computed(() => {
-  const totalEpisodes = watchedStore.watchedEpisodes.length
-  const uniqueSeries = new Set(watchedStore.watchedEpisodes.map(ep => ep.series_id)).size
-  // Estimamos 45 minutos por episodio
-  const hoursWatched = Math.round((totalEpisodes * 45) / 60)
+  const episodes = watchedStore.watchedEpisodes
+  const totalEpisodes = episodes.length
+  const uniqueSeries = new Set(episodes.map(ep => ep.series_id)).size
+  // Estimamos 45 minutos por episodio, películas 120 minutos
+  const totalMinutes = episodes.reduce((acc, ep) => {
+    return acc + (ep.is_movie ? 120 : 45)
+  }, 0)
+  const hoursWatched = Math.round(totalMinutes / 60)
   
   return {
     totalEpisodes,
@@ -226,6 +258,7 @@ const markAsUnwatched = async (episodeId) => {
     await watchedStore.markAsUnwatched(episodeId)
     uiStore.showToast('Episode marked as unwatched', 'success')
   } catch (error) {
+    console.error('Error marking as unwatched:', error)
     uiStore.showToast('Error updating episode status', 'error')
   }
 }
@@ -239,19 +272,36 @@ const clearAllWatched = async () => {
     await watchedStore.clearWatchedEpisodes()
     uiStore.showToast('Watch history cleared', 'success')
   } catch (error) {
+    console.error('Error clearing watch history:', error)
     uiStore.showToast('Error clearing watch history', 'error')
   }
 }
 
-const goToSeriesDetail = (itemId, itemType = 'series') => {
-  if (itemType === 'movie') {
-    router.push({ name: 'movie-detail', params: { id: itemId } })
+const goToDetail = (item) => {
+  console.log('🔗 Going to detail for item:', item)
+  if (item.type === 'movie') {
+    router.push({ name: 'movie-detail', params: { id: item.series_id } })
   } else {
-    router.push({ name: 'series-detail', params: { id: itemId } })
+    router.push({ name: 'series-detail', params: { id: item.series_id } })
   }
 }
+
+const goToSeriesDetail = (itemId) => {
+  router.push({ name: 'series-detail', params: { id: itemId } })
+}
+
 const goBack = () => {
   router.go(-1)
+}
+
+const handleImageError = (event) => {
+  // Ocultar imagen rota y mostrar placeholder
+  const img = event.target
+  const placeholder = img.parentElement.querySelector('.poster-placeholder, .episode-poster-placeholder')
+  if (placeholder) {
+    img.style.display = 'none'
+    placeholder.style.display = 'flex'
+  }
 }
 
 const formatDate = (dateString) => {
@@ -271,9 +321,14 @@ const formatDate = (dateString) => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  console.log('🔄 WatchedView mounted')
   if (authStore.isAuthenticated) {
-    watchedStore.loadWatchedEpisodes()
+    console.log('👤 User is authenticated, loading watched episodes...')
+    await watchedStore.loadWatchedEpisodes()
+    console.log('✅ Watched episodes loaded:', watchedStore.watchedEpisodes.length)
+  } else {
+    console.log('❌ User not authenticated')
   }
 })
 </script>
@@ -533,6 +588,13 @@ onMounted(() => {
   background: #333;
 }
 
+.poster-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .poster-placeholder {
   width: 100%;
   height: 100%;
@@ -540,6 +602,9 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .placeholder-icon {
@@ -547,6 +612,18 @@ onMounted(() => {
   height: 40px;
   color: white;
   opacity: 0.7;
+}
+
+.content-type-badge {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #667eea;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
 }
 
 .episodes-badge {
@@ -628,18 +705,40 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.1);
 }
 
-.episode-number {
-  width: 40px;
-  height: 40px;
-  background: rgba(255, 255, 255, 0.1);
+.episode-poster {
+  width: 60px;
+  height: 90px;
   border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background: #333;
+  position: relative;
+}
+
+.episode-poster-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.episode-poster-placeholder {
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: bold;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.poster-placeholder-icon {
+  width: 24px;
+  height: 24px;
   color: white;
-  font-size: 12px;
-  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .episode-info {
@@ -793,6 +892,11 @@ onMounted(() => {
   
   .filter-tabs {
     padding: 0 15px;
+  }
+  
+  .episode-poster {
+    width: 50px;
+    height: 75px;
   }
   
   .nav-label {

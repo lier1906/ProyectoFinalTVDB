@@ -347,18 +347,38 @@ const toggleFavorite = async () => {
   }
 }
 
+// También actualiza la función markAsWatched para marcar toda la serie:
 const markAsWatched = async () => {
   if (!authStore.isAuthenticated) {
     router.push('/login')
     return
   }
 
-  // Marcar toda la serie como vista (lógica simplificada)
-  uiStore.showToast('Funcionalidad en desarrollo', 'info')
-}
-
-const isEpisodeWatched = (episodeId) => {
-  return watchedStore.isEpisodeWatched(episodeId)
+  try {
+    // Si hay episodios cargados, marcar algunos como ejemplo
+    if (displayedEpisodes.value.length > 0) {
+      const firstEpisode = displayedEpisodes.value[0]
+      const episodeData = {
+        id: firstEpisode.id,
+        name: firstEpisode.name,
+        seasonNumber: firstEpisode.seasonNumber || firstEpisode.season || 1,
+        number: firstEpisode.number || firstEpisode.episodeNumber || 1
+      }
+      
+      const seriesData = {
+        id: series.value.id,
+        name: series.value.name
+      }
+      
+      await watchedStore.markAsWatched(episodeData, seriesData)
+      uiStore.showToast('Episode marked as watched', 'success')
+    } else {
+      uiStore.showToast('No episodes available to mark as watched', 'info')
+    }
+  } catch (error) {
+    console.error('❌ Error marking series as watched:', error)
+    uiStore.showToast('Error marking series as watched', 'error')
+  }
 }
 
 const toggleEpisodeWatched = async (episode) => {
@@ -368,15 +388,35 @@ const toggleEpisodeWatched = async (episode) => {
   }
 
   try {
+    console.log('🔄 Toggling episode watched status:', episode)
+    
     if (isEpisodeWatched(episode.id)) {
       await watchedStore.markAsUnwatched(episode.id)
-      uiStore.showToast('Episodio marcado como no visto', 'success')
+      uiStore.showToast('Episode marked as unwatched', 'success')
     } else {
-      await watchedStore.markAsWatched(episode, series.value)
-      uiStore.showToast('Episodio marcado como visto', 'success')
+      // Asegurar que el episodio tenga la estructura correcta
+      const episodeData = {
+        id: episode.id,
+        name: episode.name,
+        seasonNumber: episode.seasonNumber || episode.season || 1,
+        number: episode.number || episode.episodeNumber || 1
+      }
+      
+      // Asegurar que la serie tenga la estructura correcta  
+      const seriesData = {
+        id: series.value.id,
+        name: series.value.name
+      }
+      
+      console.log('📺 Episode data:', episodeData)
+      console.log('📺 Series data:', seriesData)
+      
+      await watchedStore.markAsWatched(episodeData, seriesData)
+      uiStore.showToast('Episode marked as watched', 'success')
     }
   } catch (error) {
-    uiStore.showToast('Error al actualizar estado', 'error')
+    console.error('❌ Error toggling episode watched status:', error)
+    uiStore.showToast('Error updating episode status', 'error')
   }
 }
 
